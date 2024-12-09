@@ -11,20 +11,29 @@
 #define DSRAM_SIZE 256
 #define NUMBER_REGS 16
 
-//char memin[][];
+typedef struct {
+    int pc;
+    char inst[LINE_LENGTH];
+    int op;
+    int rd;
+    int rs;
+    int rt;
+    int imm;
+    int dist; //the index of the dist register(rd)
+    int ALU; //outp of the alu
+    int data; // data from memory 
+}temp_reg;
+
 char Imem0[MAX_LINES][LINE_LENGTH];
 char Imem1[MAX_LINES][LINE_LENGTH];
 char Imem2[MAX_LINES][LINE_LENGTH];
 char Imem3[MAX_LINES][LINE_LENGTH];
 char memout[MAX_LINE_MEMIN][LINE_LENGTH];
-int regs0_old[NUMBER_REGS];
-int regs0_new[NUMBER_REGS];
-int regs1_old[NUMBER_REGS];
-int regs1_new[NUMBER_REGS];
-int regs2_old[NUMBER_REGS];
-int regs2_new[NUMBER_REGS];
-int regs3_old[NUMBER_REGS];
-int regs3_new[NUMBER_REGS];
+int regs0[NUMBER_REGS];
+int regs1[NUMBER_REGS];
+int regs2[NUMBER_REGS];
+int regs3[NUMBER_REGS];
+temp_reg pipe_regs[NUMBER_CORES][8]; /*the registers of the pipeline (old and new for all the cores)*/
 char Dsram0[DSRAM_SIZE][LINE_LENGTH];
 char Dsram1[DSRAM_SIZE][LINE_LENGTH];
 char Dsram2[DSRAM_SIZE][LINE_LENGTH];
@@ -54,21 +63,56 @@ int read_miss[NUMBER_CORES];    /* read_miss[i] is the number of read_miss in th
 int write_miss[NUMBER_CORES];   /* write_miss[i] is the number of write_miss in the Dsram of core[i] */
 int decode_stall[NUMBER_CORES]; /* decode_stall[i] is the number of decode stalls in the pipeline of core[i] */
 int mem_stall[NUMBER_CORES];    /* mem_stall[i] is the number of mem stalls in the pipeline of core[i] */
+int pc[NUMBER_CORES];
 
-
+// char* filename,   char ***array,   int*;
 void main(int argc, char *argv[]){
     int i, c;
     if (argc != 28){
         printf("invalid input");
         exit(0);
     }
-    for(i=0; i<NUMBER_REGS; i++){
-        regs0_new[i] = regs0_old[i] = 0;
-        regs1_new[i] = regs1_old[i] = 0;
-        regs2_new[i] = regs2_old[i] = 0;
-        regs3_new[i] = regs3_old[i] = 0;
+    char* imem0_txt = argv[1];
+    char* imem1_txt = argv[2];
+    char* imem2_txt = argv[3];
+    char* imem3_txt = argv[4];
+    char* memin_txt = argv[5];
+    char* memout_txt = argv[6];
+    char* regout0_txt = argv[7];
+    char* regout1_txt = argv[8];
+    char* regout2_txt = argv[9];
+    char* regout3_txt = argv[10];
+    char* core0trace_txt = argv[11];
+    char* core1trace_txt = argv[12];
+    char* core2trace_txt = argv[13];
+    char* core3trace_txt = argv[14];
+    char* bustrace_txt = argv[15];
+    char* dsram0_txt = argv[16];
+    char* dsram1_txt = argv[17];
+    char* dsram2_txt = argv[18];
+    char* dsram3_txt = argv[19];
+    char* tsram0_txt = argv[20];
+    char* tsram1_txt = argv[21];
+    char* tsram2_txt = argv[22];
+    char* tsram3_txt = argv[23];
+    char* stats0_txt = argv[24];
+    char* stats1_txt = argv[25];
+    char* stats2_txt = argv[26];
+    char* stats3_txt = argv[27];
+
+
+    for(i=0; i<NUMBER_CORES; i++){
+        for(c=0; c<8; c++){
+            memset(&pipe_regs[i][c], 0, sizeof(pipe_regs[i][c]));
+        }
     }
-    //Dsram0[DSRAM_SIZE][LINE_LENGTH]
+    for(i=0; i<NUMBER_REGS; i++){
+        regs0[i] = 0;
+        regs1[i] = 0;
+        regs2[i] = 0;
+        regs3[i] = 0;
+    }
+
     for(i=0; i<DSRAM_SIZE; i++){
         for(c=0; c<LINE_LENGTH; c++){
             if (c == (LINE_LENGTH-1)){
@@ -85,7 +129,7 @@ void main(int argc, char *argv[]){
             }
             }
         }
-    //Tsram0[NUMBER_BLOCKS][LINE_LENGTH];
+
     for(i=0; i<NUMBER_BLOCKS; i++){
         for(c=0; c<LINE_LENGTH; c++){
             if (c == (LINE_LENGTH-1)){
@@ -102,28 +146,18 @@ void main(int argc, char *argv[]){
             }
         }
     }
-    //dirty_array0[NUMBER_BLOCKS];
+
     for(i=0; i<NUMBER_BLOCKS; i++){
         dirty_array0[i] = 0;
     }
-    //pipeline0[5]
+
     for(i=0; i<5; i++){
         pipeline0[i] = -1;
         pipeline1[i] = -1;
         pipeline2[i] = -1;
         pipeline3[i] = -1;
     }
-    /*
-    int cycles[NUMBER_CORES];       
-    int instructions[NUMBER_CORES]; 
-    int read_hit[NUMBER_CORES];     
-    int write_hit[NUMBER_CORES];    
-    int read_miss[NUMBER_CORES];    
-    int write_miss[NUMBER_CORES];   
-    int decode_stall[NUMBER_CORES]; 
-    int mem_stall[NUMBER_CORES];    
-    int pc[NUMBER_CORES];
-    */
+
     for(i=0; i<NUMBER_CORES;i++){
     cycles[i] = 0;
     instructions[i] = 0;
@@ -133,5 +167,10 @@ void main(int argc, char *argv[]){
     write_miss[i] = 0;
     decode_stall[i] = 0;
     mem_stall[i] = 0;
+    pc[i] = 0;
     }
+
+    // here we start after init all the global variables and the file names
 }
+
+
