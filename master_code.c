@@ -46,6 +46,10 @@ int dirty_array0[NUMBER_BLOCKS]; /*if dirty_array0[i] == 1 then the i'th block i
 int dirty_array1[NUMBER_BLOCKS]; 
 int dirty_array2[NUMBER_BLOCKS]; 
 int dirty_array3[NUMBER_BLOCKS]; 
+int tag_array0[NUMBER_CORES];
+int tag_array1[NUMBER_CORES];
+int tag_array2[NUMBER_CORES];
+int tag_array3[NUMBER_CORES];
 int pipeline0[5];    /*pipeline0[0] is the pc of the command that is in fetch in core0
                       pipeline0[1] is the pc of the command that is in decode in core0
                       pipeline0[2] is the pc of the command that is in excute in core0
