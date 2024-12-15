@@ -12,7 +12,7 @@
 #define NUMBER_REGS 16
 
 typedef struct {
-    int pc;
+    int pc_pipe;
     char inst[LINE_LENGTH];
     int op;
     int rd;
@@ -20,7 +20,7 @@ typedef struct {
     int rt;
     int imm;
     int dist; //the index of the dist register(rd)
-    int ALU; //outp of the alu
+    int ALU_pipe; //outp of the alu
     int data; // data from memory 
 }temp_reg;
 
