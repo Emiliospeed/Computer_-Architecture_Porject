@@ -143,15 +143,15 @@ void main(int argc, char *argv[]){
     char* stats3_txt = argv[27];
 
 
-    for(i=0; i<NUMBER_CORES; i++){
+    for(i=0; i<NUMBER_CORES; i++){              /*fills the pipe_regs with zeroes */
         for(c=0; c<8; c++){
             memset(&pipe_regs[i][c], 0, sizeof(pipe_regs[i][c]));
         }
-        for(k=0; k<NUMBER_REGS; k++){
+        for(k=0; k<NUMBER_REGS; k++){           /*fills the regs with zeroes */
             regs[i][k] = 0;
         }
         
-        for(c=0; c<DSRAM_SIZE; c++){
+        for(c=0; c<DSRAM_SIZE; c++){            /*fills the Dsram last element with with \0 or zero */
             for(k=0; k<LINE_LENGTH; k++){
                 if (k == (LINE_LENGTH-1)){
                     Dsram[i][c][k] = '\0';
@@ -162,7 +162,7 @@ void main(int argc, char *argv[]){
             }
         }
 
-        for(c=0; c<NUMBER_BLOCKS; c++){
+        for(c=0; c<NUMBER_BLOCKS; c++){           /*fills the Tsram last element with with \0 or zero */
             for(k=0; k<LINE_LENGTH; k++){
                 if (k == (LINE_LENGTH-1)){
                     Tsram[i][c][k] = '\0';
@@ -176,7 +176,7 @@ void main(int argc, char *argv[]){
         /*for(c=0; c<5; c++){
             pipeline[i][c] = -1;
         }*/
-
+        /* values intereact with the MESI */
         cycles[i] = 0;
         instructions[i] = 0;
         read_hit[i] = 0;
