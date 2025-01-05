@@ -113,6 +113,8 @@ int bus_busy;
 int core_ready[NUMBER_CORES]; /*core_ready[i] is 1 if the bus gave him the block he wanted*/
 int need_flush[NUMBER_CORES]; /*need_flush[i] is 1 if the tag is wrong and we need to flush the block before reading the other block*/
 int alredy_enqueued[NUMBER_CORES]; /*alredy_enqueued[i] is 1 if the request is alredy in the round robin*/
+int who_flush ; // indicates which core will flush {0,1,2,3,4}
+int who_needs; // indicates which core (alternatively the mem) needs the data {0,1,2,3,4}
 
 // char* filename,   char ***array,   int*;
 void main(int argc, char *argv[]){
@@ -201,22 +203,23 @@ void main(int argc, char *argv[]){
     counter_limit = 0;
     initializeQueue(&core_bus_requests);
     bus_busy = 0;
+    who_flush ; 
 
     // here we start after init all the global variables and the file names
     // start with if busy then MESI()
 }
 
-void mem(int core_num){
+void mem(int core_num){                                  
     int data = 0;
     int op = pipe_regs[core_num][4].op;
-    int address = pipe_regs[core_num][4].ALU_pipe;
-    int wanted_tag = address / pow(2,8); // assuming 20 bit address
-    int index = address % 256;
-    int block = address / 4;
-    char *tr = Tsram[core_num][block];
-    char *tag = tr+2;
+    int address = pipe_regs[core_num][4].ALU_pipe;                    
+    int wanted_tag = address / pow(2,8); // assuming 20 bit address   // tag is the first 8 bits address 
+    //int index = address % 256;
+    //int block = (index / 4);
+    char *tr = Tsram[core_num][block];            //[TAG][MESI] block as in the assignment 
+    char *tag = tr+2;                                // to ditch first two 
     char tag_hex[4]; // may need to make it 3
-    int tag_num =  hex_to_int(bin_to_hex(tag, tag_hex));
+    int tag_num =  hex_to_int(bin_to_hex(tag, tag_hex));                 // same tag but in int
     int mesi_state = -1;
     if(*tr == '0'){
         if(*(tr+1) == '0'){
@@ -235,7 +238,7 @@ void mem(int core_num){
         }
     }
 
-    if(!alredy_enqueued[core_num]){
+    if(!alredy_enqueued[core_num]){                    // fills the round robin
         if(op == 16){ //lw
             if (tag_num == wanted_tag){ // tag matched
                 if(mesi_state != 0){ // not invalid
@@ -298,7 +301,7 @@ void mem(int core_num){
             }
         }
     }
-    if(core_ready[core_num] == 1){ // if the is a stall flag then here we should zero it
+    if(core_ready[core_num] == 1){
         if(op == 16){ // lw
             data = hex_to_int(Dsram[core_num][index]);
         }
@@ -318,3 +321,64 @@ void mem(int core_num){
         pipe_regs[core_num][7].rt = pipe_regs[core_num][4].rd;
     }
 }
+
+int data_in_dsram(int core_num, int address){
+    int i;
+    int block = (address \ 4) % NUMBER_BLOCKS;
+    int wanted_tag = address / pow(2,8);
+    for(i=0; i<NUMBER_CORES; i++){
+        if(i != core_num){
+            char *tr = Tsram[core_num][block];
+            char *tag = tr + 2;
+            char tag_hex[4];
+            int tag_num =  hex_to_int(bin_to_hex(tag, tag_hex));
+            int mesi_state;
+            if(*tr == '0'){
+                if(*(tr+1) == '0'){
+                    mesi_state = 0;
+                    continue;
+                }
+            }
+            if(wanted_tag == tag_num){
+                return i;
+            }
+            
+            
+        }
+    }
+    return 4;
+}
+
+void MESI_bus(){
+    static int core_number = -1;
+    static int bus_origid = -1;
+    static int bus_cmd = -1;
+    static int bus_address = -1;
+    static int bus_shared = -1;
+    int source_data;
+    if(!busy){
+        core_number = dequeue(&core_bus_requests);
+        bus_origid =  dequeue(&bus_origid, core_num);
+        bus_cmd = dequeue(&bus_cmd, Flush);
+        bus_address = dequeue(&bus_address, address);
+        if(core_number == -1){
+            return;
+        }
+        // check if the data is in another dsram , if so the bus_shared = 1
+        source_data = data_in_dsram(core_number, bus_address);
+        if (source_data != 4){
+            bus_shared = 1;
+        }
+        if(bus_cmd == BusRd || bus_cmd == BusRdX){
+            
+        }
+        
+
+        
+    }
+}
+        
+
+        
+            
+
