@@ -10,12 +10,16 @@
 #define NUMBER_BLOCKS 64
 #define DSRAM_SIZE 256
 #define NUMBER_REGS 16
+#define BusRd 1
+#define BUSRdX 2
+#define Flush 3
 
-void fetch(int i);
-void decode(int i);
-void execute(int i);
-void mem(int i);
-void write_back(int i);
+void fetch(int core_num);
+void decode(int core_num);
+void execute(int core_num);
+void mem(int core_num);
+void write_back(int core_num);
+void MESI_bus();
 
 typedef struct {
     int pc_pipe;
@@ -90,13 +94,6 @@ int regs[NUMBER_CORES][NUMBER_REGS];
 temp_reg pipe_regs[NUMBER_CORES][8]; /*the registers of the pipeline (old and new for all the cores)*/
 char Dsram[NUMBER_CORES][DSRAM_SIZE][LINE_LENGTH];
 char Tsram[NUMBER_CORES][NUMBER_BLOCKS][15];
-//int tag_array0[NUMBER_CORES][NUMBER_CORES];
-/*int pipeline[NUMBER_CORES][5];    /*pipeline[i][0] is the pc of the command that is in fetch in core i
-                      pipeline[i][1] is the pc of the command that is in decode in core i
-                      pipeline[i][2] is the pc of the command that is in excute in core i
-                      pipeline[i][3] is the pc of the command that is in mem in core i
-                      pipeline[i][4] is the pc of the command that is in write back in core i
-                      if pipeline0[i] == -1 then there is nothing in it*/
 int cycles[NUMBER_CORES];       /* cycles[i] is the number of the current cycle in core[i] */
 int instructions[NUMBER_CORES]; /* instructions[i] is the number of the instructions done in core[i] */
 int read_hit[NUMBER_CORES];     /* read_hit[i] is the number of read_hit in the Dsram of core[i] */
@@ -106,6 +103,16 @@ int write_miss[NUMBER_CORES];   /* write_miss[i] is the number of write_miss in 
 int decode_stall[NUMBER_CORES]; /* decode_stall[i] is the number of decode stalls in the pipeline of core[i] */
 int mem_stall[NUMBER_CORES];    /* mem_stall[i] is the number of mem stalls in the pipeline of core[i] */
 int pc[NUMBER_CORES];
+/*putting in a queues the parameters of the bus*/
+Queue core_bus_requests;
+Queue bus_origid;
+Queue bus_cmd;
+Queue bus_address;
+int bus_shared[NUMBER_CORES];
+int bus_busy;
+int core_ready[NUMBER_CORES]; /*core_ready[i] is 1 if the bus gave him the block he wanted*/
+int need_flush[NUMBER_CORES]; /*need_flush[i] is 1 if the tag is wrong and we need to flush the block before reading the other block*/
+int alredy_enqueued[NUMBER_CORES]; /*alredy_enqueued[i] is 1 if the request is alredy in the round robin*/
 
 // char* filename,   char ***array,   int*;
 void main(int argc, char *argv[]){
@@ -143,15 +150,15 @@ void main(int argc, char *argv[]){
     char* stats3_txt = argv[27];
 
 
-    for(i=0; i<NUMBER_CORES; i++){              /*fills the pipe_regs with zeroes */
+    for(i=0; i<NUMBER_CORES; i++){
         for(c=0; c<8; c++){
             memset(&pipe_regs[i][c], 0, sizeof(pipe_regs[i][c]));
         }
-        for(k=0; k<NUMBER_REGS; k++){           /*fills the regs with zeroes */
+        for(k=0; k<NUMBER_REGS; k++){
             regs[i][k] = 0;
         }
         
-        for(c=0; c<DSRAM_SIZE; c++){            /*fills the Dsram last element with with \0 or zero */
+        for(c=0; c<DSRAM_SIZE; c++){
             for(k=0; k<LINE_LENGTH; k++){
                 if (k == (LINE_LENGTH-1)){
                     Dsram[i][c][k] = '\0';
@@ -162,7 +169,7 @@ void main(int argc, char *argv[]){
             }
         }
 
-        for(c=0; c<NUMBER_BLOCKS; c++){           /*fills the Tsram last element with with \0 or zero */
+        for(c=0; c<NUMBER_BLOCKS; c++){
             for(k=0; k<LINE_LENGTH; k++){
                 if (k == (LINE_LENGTH-1)){
                     Tsram[i][c][k] = '\0';
@@ -176,7 +183,7 @@ void main(int argc, char *argv[]){
         /*for(c=0; c<5; c++){
             pipeline[i][c] = -1;
         }*/
-        /* values intereact with the MESI */
+
         cycles[i] = 0;
         instructions[i] = 0;
         read_hit[i] = 0;
@@ -187,9 +194,127 @@ void main(int argc, char *argv[]){
         mem_stall[i] = 0;
         pc[i] = 0;
         flushed[i] = 0;
+        core_ready[i] = 1;
+        need_flush[i] = 0;
     }
     bus_counter = 0;
     counter_limit = 0;
+    initializeQueue(&core_bus_requests);
+    bus_busy = 0;
 
     // here we start after init all the global variables and the file names
+    // start with if busy then MESI()
+}
+
+void mem(int core_num){
+    int data = 0;
+    int op = pipe_regs[core_num][4].op;
+    int address = pipe_regs[core_num][4].ALU_pipe;
+    int wanted_tag = address / pow(2,8); // assuming 20 bit address
+    int index = address % 256;
+    int block = address / 4;
+    char *tr = Tsram[core_num][block];
+    char *tag = tr+2;
+    char tag_hex[4]; // may need to make it 3
+    int tag_num =  hex_to_int(bin_to_hex(tag, tag_hex));
+    int mesi_state = -1;
+    if(*tr == '0'){
+        if(*(tr+1) == '0'){
+            mesi_state = 0;
+        }
+        else{
+            mesi_state = 1;
+        }
+    }
+    else{
+        if(*(tr+1) == '0'){
+            mesi_state = 2;
+        }
+        else{
+            mesi_state = 3;
+        }
+    }
+
+    if(!alredy_enqueued[core_num]){
+        if(op == 16){ //lw
+            if (tag_num == wanted_tag){ // tag matched
+                if(mesi_state != 0){ // not invalid
+                    data = hex_to_int(Dsram[core_num][index]);
+                }
+                else{ // invalid
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, BusRd);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+            }
+            else{ // tag is not matched
+                if(mesi_state == 0 || mesi_state == 2){//invalid or exclusive
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, BusRd);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+                else{ // modified or shared
+                    need_flush[core_num] = 1;
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, Flush);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+            }
+
+        }
+
+        if(op == 17){ //sw
+            if(tag_num == wanted_tag){ //tag matched
+                if(mesi_state == 0 || mesi_state == 1){ //invalid or shared
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, BUSRdX);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+            }
+            else{//tag not matched
+                if(mesi_state == 0 || mesi_state == 2){//invalid or exclusive
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, BUSRdX);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+                else{ // modified or shared
+                    need_flush[core_num] = 1;
+                    enqueue(&core_bus_requests, core_num);
+                    enqueue(&bus_origid, core_num);
+                    enqueue(&bus_cmd, Flush);
+                    enqueue(&bus_address, address);
+                    core_ready[core_num] = 0; // my data is not ready
+                }
+            }
+        }
+    }
+    if(core_ready[core_num] == 1){ // if the is a stall flag then here we should zero it
+        if(op == 16){ // lw
+            data = hex_to_int(Dsram[core_num][index]);
+        }
+        if(op == 17){ // sw
+            int_to_hex(pipe_regs[core_num][4].rd, Dsram[core_num][index]);
+        }
+
+        pipe_regs[core_num][7].ALU_pipe = pipe_regs[core_num][4].ALU_pipe;
+        pipe_regs[core_num][7].data = data;
+        pipe_regs[core_num][7].dist = pipe_regs[core_num][4].dist;
+        pipe_regs[core_num][7].imm = pipe_regs[core_num][4].imm;
+        strcpy(pipe_regs[core_num][4].inst, pipe_regs[core_num][7].inst);
+        pipe_regs[core_num][7].op = pipe_regs[core_num][4].op;
+        pipe_regs[core_num][7].pc_pipe = pipe_regs[core_num][4].pc_pipe;
+        pipe_regs[core_num][7].rd = pipe_regs[core_num][4].rd;
+        pipe_regs[core_num][7].rs = pipe_regs[core_num][4].rs;
+        pipe_regs[core_num][7].rt = pipe_regs[core_num][4].rd;
+    }
 }
