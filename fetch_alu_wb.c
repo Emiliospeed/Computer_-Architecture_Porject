@@ -97,6 +97,12 @@ void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and impleme
                 pipe_regs[i][5].ALU_pipe=regs[i][rstag] >> regs[i][rttag];
             }    
             break;
+	case 16:
+            pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
+            break;
+	case 17:
+            pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
+            break;
     }
 }
 void wb (int i){ //Takes the opcode , destination , output of alu and data from memory (from pipe_regs[i][6]) and according to the opcode he put the correct result in the destination register .
