@@ -221,7 +221,7 @@ void mem(int core_num){
     char tag_hex[4]; // may need to make it 3
     int tag_num =  hex_to_int(bin_to_hex(tag, tag_hex));                 // same tag but in int
     int mesi_state = -1;
-    if(*tr == '0'){
+    if(*tr == '0'){ // calculating messi state
         if(*(tr+1) == '0'){
             mesi_state = 0;
         }
@@ -309,6 +309,7 @@ void mem(int core_num){
             int_to_hex(pipe_regs[core_num][4].rd, Dsram[core_num][index]);
         }
 
+        // sending all the data to the next pipe register
         pipe_regs[core_num][7].ALU_pipe = pipe_regs[core_num][4].ALU_pipe;
         pipe_regs[core_num][7].data = data;
         pipe_regs[core_num][7].dist = pipe_regs[core_num][4].dist;
@@ -322,6 +323,7 @@ void mem(int core_num){
     }
 }
 
+// function to check if the data in the dsram (return the core number)
 int data_in_dsram(int core_num, int address){
     int i;
     int to_ret;
@@ -426,19 +428,19 @@ void MESI_bus(){
         bus_busy = 1;
         who_flush = bus_origid;
         bus_counter++;
-        if(bus_counter>0 && bus_counter<5){
+        if(bus_counter>0 && bus_counter<5){ // the data is shared ,then we start giving the words from the first cycle
             if(bus_sharing == 1){
                 strcpy(Dsram[who_needs][bus_address + bus_counter - 1], Dsram[who_flush][bus_address + bus_counter - 1]);
             }
         }
         if(bus_counter >= 16){
-            if((!bus_sharing == 1) && who_needs != 4){
+            if((!bus_sharing == 1) && who_needs != 4){ // the data was not shared (giving the core)
                 strcpy(Dsram[who_needs][bus_address + bus_counter - 16], Dsram[who_flush][bus_address + bus_counter - 16]);
             }
-            if(who_flush != 4){
+            if(who_flush != 4){ // main memory not flushing then we give it data
                 strcpy(memout[bus_address + bus_counter - 16], Dsram[who_flush][bus_address  + bus_counter - 16]);
             }
-            if(bus_counter == 19){
+            if(bus_counter == 19){ //we gave all the words neede and returning to the default settings
                 if(who_needs != 4){
                     core_ready[who_needs] = 1;
                     alredy_enqueued[who_needs] = 0;
