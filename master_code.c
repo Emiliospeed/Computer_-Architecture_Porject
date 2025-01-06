@@ -11,7 +11,7 @@
 #define DSRAM_SIZE 256
 #define NUMBER_REGS 16
 #define BusRd 1
-#define BUSRdX 2
+#define BusRdX 2
 #define Flush 3
 
 void fetch(int core_num);
@@ -83,8 +83,6 @@ int dequeue(Queue* q) {
 }
 
 int bus_counter;
-int counter_limit;
-int flushed[NUMBER_CORES];
 char Imem0[MAX_LINES][LINE_LENGTH];
 char Imem1[MAX_LINES][LINE_LENGTH];
 char Imem2[MAX_LINES][LINE_LENGTH];
@@ -196,16 +194,16 @@ void main(int argc, char *argv[]){
         decode_stall[i] = 0;
         mem_stall[i] = 0;
         pc[i] = 0;
-        flushed[i] = 0;
         core_ready[i] = 1;
         need_flush[i] = 0;
         sharing_block[i] = 0;
+        bus_shared[i] = 0;
     }
     bus_counter = 0;
-    counter_limit = 0;
     initializeQueue(&core_bus_requests);
     bus_busy = 0;
-    who_flush ; 
+    who_flush = 4;
+    who_needs = 4; 
 
     // here we start after init all the global variables and the file names
     // start with if busy then MESI()
@@ -216,8 +214,8 @@ void mem(int core_num){
     int op = pipe_regs[core_num][4].op;
     int address = pipe_regs[core_num][4].ALU_pipe;                    
     int wanted_tag = address / pow(2,8); // assuming 20 bit address   // tag is the first 8 bits address 
-    //int index = address % 256;
-    //int block = (index / 4);
+    int index = address % 256;
+    int block = (index / 4);
     char *tr = Tsram[core_num][block];            //[TAG][MESI] block as in the assignment 
     char *tag = tr+2;                                // to ditch first two 
     char tag_hex[4]; // may need to make it 3
@@ -279,7 +277,7 @@ void mem(int core_num){
                 if(mesi_state == 0 || mesi_state == 1){ //invalid or shared
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
-                    enqueue(&bus_cmd, BUSRdX);
+                    enqueue(&bus_cmd, BusRdX);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
                 }
@@ -288,7 +286,7 @@ void mem(int core_num){
                 if(mesi_state == 0 || mesi_state == 2){//invalid or exclusive
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
-                    enqueue(&bus_cmd, BUSRdX);
+                    enqueue(&bus_cmd, BusRdX);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
                 }
@@ -327,7 +325,7 @@ void mem(int core_num){
 int data_in_dsram(int core_num, int address){
     int i;
     int to_ret;
-    int block = (address \ 4) % NUMBER_BLOCKS;
+    int block = (address / 4) % NUMBER_BLOCKS;
     int wanted_tag = address / pow(2,8);
     to_ret = 4;
     for(i=0; i<NUMBER_CORES; i++){
@@ -359,59 +357,107 @@ void MESI_bus(){
     static int bus_origid = -1;
     static int bus_cmd = -1;
     static int bus_address = -1;
-    static int bus_shared = -1;
+    static int bus_sharing = -1;
     int source_data;
     int i;
     int mesi_state;
-    if(!busy){
+    int block_number;
+    if(!bus_busy){
         core_number = dequeue(&core_bus_requests);
-        bus_origid =  dequeue(&bus_origid, core_num);
-        bus_cmd = dequeue(&bus_cmd, Flush);
-        bus_address = dequeue(&bus_address, address);
+        bus_origid =  dequeue(&bus_origid);
+        bus_cmd = dequeue(&bus_cmd);
+        bus_address = dequeue(&bus_address);
         if(core_number == -1){
             return;
         }
         // check if the data is in another dsram , if so the bus_shared = 1
         source_data = data_in_dsram(core_number, bus_address);
         if (source_data != 4){
-            bus_shared = 1;
+            bus_sharing = 1;
         }
         if(bus_cmd == BusRd || bus_cmd == BusRdX){
+            who_needs = bus_origid;
             for(i=0;i<=3;i++){
                 if(bus_origid == i) continue;
                 if(sharing_block[i] == 1){
-                    if((Tsram[i][(bus_address/4)%pow(2,8)][0] == '1')  && (Tsram[i][(bus_address/4)%pow(2,8)][1] == '1')){ // if the messi_state is modified
+                    block_number = (bus_address/4)%NUMBER_BLOCKS;
+                    if((Tsram[i][block_number][0] == '1')  && (Tsram[i][block_number][1] == '1')){ // if the messi_state is modified
                         who_flush = i;
-                        if(bus_cmd == BusRd){
-                            Tsram[i][(bus_address/4)%pow(2,8)][0] = '0';
+                        if(bus_cmd == BusRd){ 
+                            Tsram[i][block_number][0] = '0'; // modified --> shared
+                            Tsram[bus_origid][block_number][0] = '0'; // change state to shared of the origid core
+                            Tsram[bus_origid][block_number][1] = '1';
                         }
                         if(bus_cmd == BusRdX){
-                            Tsram[i][(bus_address/4)%pow(2,8)][0] = '0';
-                            Tsram[i][(bus_address/4)%pow(2,8)][1] = '0';
+                            Tsram[i][block_number][0] = '0'; // modified --> invalid
+                            Tsram[i][block_number][1] = '0';
+                            Tsram[bus_origid][block_number][0] = '1';// change state to modified of the origid core
+                            Tsram[bus_origid][block_number][1] = '1';
                         }
                     }
                     else{ //bus_shared and not modified then the block is exclusive or shared
                         if(bus_cmd == BusRd){// changing state to shared
-                            Tsram[i][(bus_address/4)%pow(2,8)][0] = '0'; 
-                            Tsram[i][(bus_address/4)%pow(2,8)][1] = '1';
+                            Tsram[i][block_number][0] = '0'; // exclusive or shared --> shared
+                            Tsram[i][block_number][1] = '1';
+                            Tsram[bus_origid][block_number][0] = '0'; // change state to shared of the origid core
+                            Tsram[bus_origid][block_number][1] = '1';
                         }
                         if(bus_cmd == BusRdX){// changing state to invalid
-                            Tsram[i][(bus_address/4)%pow(2,8)][0] = '0';
-                            Tsram[i][(bus_address/4)%pow(2,8)][1] = '0';
+                            Tsram[i][block_number][0] = '0';// exclusive or shared --> invalid
+                            Tsram[i][block_number][1] = '0';
+                            Tsram[bus_origid][block_number][0] = '1';// change state to modified of the origid core
+                            Tsram[bus_origid][block_number][1] = '1';
                         }
                     }
                 }
                 
             }
-            
+            bus_origid = who_flush;
+            bus_cmd = Flush;
+            bus_busy = 1;
+            return;
         }
         
-
         
     }
+    bus_address = (bus_address >> 2) << 2;
+    block_number = (bus_address/4)%NUMBER_BLOCKS;
+    if(bus_cmd == Flush){
+        bus_busy = 1;
+        who_flush = bus_origid;
+        bus_counter++;
+        if(bus_counter>0 && bus_counter<5){
+            if(bus_sharing == 1){
+                strcpy(Dsram[who_needs][bus_address + bus_counter - 1], Dsram[who_flush][bus_address + bus_counter - 1]);
+            }
+        }
+        if(bus_counter >= 16){
+            if((!bus_sharing == 1) && who_needs != 4){
+                strcpy(Dsram[who_needs][bus_address + bus_counter - 16], Dsram[who_flush][bus_address + bus_counter - 16]);
+            }
+            if(who_flush != 4){
+                strcpy(memout[bus_address + bus_counter - 16], Dsram[who_flush][bus_address  + bus_counter - 16]);
+            }
+            if(bus_counter == 19){
+                if(who_needs != 4){
+                    core_ready[who_needs] = 1;
+                    alredy_enqueued[who_needs] = 0;
+                }
+                if((who_flush !=4) && need_flush[who_flush] == 1){
+                    need_flush[who_flush] = 0;
+                    Tsram[who_flush][block_number][0] = '0';
+                    Tsram[who_flush][block_number][1] = '0';
+                }
+                bus_counter = 0;
+                bus_busy = 0;
+                who_flush = 4;
+                who_needs = 4;
+                bus_shared[0] = 0;
+                bus_shared[1] = 0;
+                bus_shared[2] = 0;
+                bus_shared[3] = 0;
+                
+            }
+        }
+    }
 }
-        
-
-        
-            
-
