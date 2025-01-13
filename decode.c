@@ -111,11 +111,7 @@ int main() {
 
 
 
-// if branch i update int pc[NUMBER_CORES];
-//dist is rd index
-// convert all to decimal 
-//rd contains the contents of rd , not the value of the register but what stored in 
-//dalal kikar hamdina
+//read_memin
 
 #define MAX_LINES_MEMIN 1048576  // Maximum number of lines in memin.txt
 #define LINE_LENGTH 9            // Length of each line (8 characters + 1 null terminator)
@@ -190,6 +186,62 @@ int main() {
     }
 
 
+
+    return 0;
+}
+
+//read_imem
+#include <stdlib.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
+
+#define MAX_FILES 5      // Number of files
+#define MAX_LINES 1024    // Maximum lines per file
+#define MAX_LINE_LENGTH 8 // Maximum characters per line
+
+// Function to read a file and store its content into a 2D array
+int read_file(const char *filename, char lines[MAX_LINES][MAX_LINE_LENGTH]) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        return -1; // Indicate error
+    }
+
+int line_count = 0;
+    while (fgets(lines[line_count], MAX_LINE_LENGTH, file) && line_count < MAX_LINES) {
+        // Remove newline character if present
+        lines[line_count][strcspn(lines[line_count], "\n")] = '\0';
+        line_count++;
+    }
+
+    fclose(file);
+    return line_count; // Return the number of lines read
+}
+int main() {
+    const char *filenames[MAX_FILES] = {"imem0.txt", "imem1.txt", "imem2.txt", "imem3.txt", "memin.txt"};
+    char file_contents[MAX_FILES][MAX_LINES][MAX_LINE_LENGTH];
+
+    for (int i = 0; i < MAX_FILES; i++) {
+        int line_count = read_file(filenames[i], file_contents[i]);
+        if (line_count < 0) {
+            printf("Failed to read file: %s\n", filenames[i]);
+            continue;
+        }
+
+        printf("Contents of %s:\n", filenames[i]);
+        for (int j = 0; j < line_count; j++) {
+            printf("Line %d: %s\n", j + 1, file_contents[i][j]);
+        }
+        printf("\n");
+    }
+
+    // Example: Accessing a specific line from a specific file
+    int file_index = 0; // First file
+    int line_number = 2; // Line number 2 (index starts from 1)
+    if (line_number - 1 < MAX_LINES) {
+        printf("File %s, Line %d: %s\n", filenames[file_index], line_number, file_contents[file_index][line_number - 1]);
+    }
 
     return 0;
 }
