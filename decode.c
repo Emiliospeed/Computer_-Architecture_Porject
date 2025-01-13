@@ -116,3 +116,81 @@ int main() {
 // convert all to decimal 
 //rd contains the contents of rd , not the value of the register but what stored in 
 //dalal kikar hamdina
+
+#define MAX_LINES_MEMIN 1048576  // Maximum number of lines in memin.txt
+#define LINE_LENGTH 9            // Length of each line (8 characters + 1 null terminator)
+
+void read_file_into_array_memin(const char *filename, char ***array, int *line_count) {
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Error opening file");
+        exit(EXIT_FAILURE);
+    }
+
+    // Allocate memory for the array of strings
+    *array = malloc(MAX_LINES_MEMIN * sizeof(char *));
+    if (!*array) {
+        perror("Memory allocation failed");
+        fclose(file);
+        exit(EXIT_FAILURE);
+    }
+
+    char buffer[LINE_LENGTH]; // Buffer to store each line
+    *line_count = 0;
+
+    // Read each line from the file
+    while (fgets(buffer, sizeof(buffer), file)) {
+        // Remove the newline character if present
+        buffer[strcspn(buffer, "\n")] = '\0';
+
+        // Allocate memory for the line and store it
+        (*array)[*line_count] = strdup(buffer);
+        if (!(*array)[*line_count]) {
+            perror("Memory allocation failed");
+            fclose(file);
+            exit(EXIT_FAILURE);
+        }
+        (*line_count)++;
+    }
+
+    fclose(file);
+}
+
+int main() {
+    char **memin;   // Array to hold lines from memin.txt
+    char **memout;  // Array to hold extended lines
+    int memin_lines; // Number of lines in memin.txt
+
+    // Read memin.txt into the memin array
+    read_file_into_array_memin("memin.txt", &memin, &memin_lines);
+
+    // Allocate memory for memout (2^20 lines)
+    memout = malloc(MAX_LINES_MEMIN * sizeof(char *));
+    if (!memout) {
+        perror("Memory allocation failed for memout");
+        return EXIT_FAILURE;
+    }
+
+    // Copy lines from memin to memout
+    for (int i = 0; i < memin_lines; i++) {
+        memout[i] = strdup(memin[i]);
+        if (!memout[i]) {
+            perror("Memory allocation failed while copying to memout");
+            return EXIT_FAILURE;
+        }
+    }
+
+    // Add "00000000" padding to memout to reach 2^20 lines
+    for (int i = memin_lines; i < MAX_LINES_MEMIN; i++) {
+        memout[i] = strdup("00000000");
+        if (!memout[i]) {
+            perror("Memory allocation failed while adding padding to memout");
+            return EXIT_FAILURE;
+        }
+    }
+
+
+
+    return 0;
+}
+
