@@ -111,7 +111,7 @@ int main() {
 
 
 
-//read_memin
+//read_memin##############################################################################################################
 
 #define MAX_LINES_MEMIN 1048576  // Maximum number of lines in memin.txt
 #define LINE_LENGTH 9            // Length of each line (8 characters + 1 null terminator)
@@ -190,7 +190,8 @@ int main() {
     return 0;
 }
 
-//read_imem
+//read_imem##############################################################################################################
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
