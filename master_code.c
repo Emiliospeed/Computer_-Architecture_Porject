@@ -338,7 +338,28 @@ void main(int argc, char *argv[]){
         }
 
     }
-
+    // extraa emillllll
+    for(int h =0;h<=13;h++){
+        fprintf(regout_files[0],"%08X\n",regs[0][h+2]);
+        fprintf(regout_files[1],"%08X\n",regs[1][h+2]);
+        fprintf(regout_files[2],"%08X\n",regs[2][h+2]);
+        fprintf(regout_files[3],"%08X\n",regs[3][h+2]);
+    }
+    //{"Cycles %d/n instructions %d/n read_hit %d/n write_hit %d/n read_miss %d/n write_miss %d/n decode_stall %d/n mem_stall %d/n",#####}
+    for(i=0;i<=3;i++){
+        fprintf(stats_files[i],"Cycles %d\n instructions %d\n read_hit %d\n write_hit %d\n read_miss %d\n write_miss %d\n decode_stall %d\n mem_stall %d\n",
+        cycles[i], instructions[i], read_hit[i], write_hit[i], read_miss[i], write_miss[i], decode_stall[i], mem_stall[i] );
+        
+    }
+    if(bus_cmd.front!=0){
+        fprintf(bus_trace_file,"%d ",cycles[i]);
+        fprintf(bus_trace_file,"%X ",cycles[i]);
+        fprintf(bus_trace_file,"%X ",cycles[i]);
+        fprintf(bus_trace_file,"%05X ",cycles[i]);
+        fprintf(bus_trace_file,"%08X ",cycles[i]);
+        fprintf(bus_trace_file,"%X ",cycles[i]);
+    }
+    // final extra
     /////////////////////////////////////////////print memout + regout0-3 + stats+ dsram + tsram
 }
 
@@ -1149,5 +1170,3 @@ void decode(int i){
 
 }    
         
-
-
