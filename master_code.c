@@ -295,14 +295,20 @@ void main(int argc, char *argv[]){
 
     while(1){
         for(i=0; i<4; i++){
-            if(cycles[i] != -1){
-                fprintf(core_trace_files[i],"%d ",cycles[i]);
+            if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){
+                // here we can write the total cycles in states file
+                cycles[i] = -1;
+                continue;
             }
+
+            fprintf(core_trace_files[i],"%d ",cycles[i]);
+            
             fetch(i);
             decode(i);
             alu(i);
             mem(i);
             wb(i);
+            MESI_bus();
             pipe_regs[i][6] = pipe_regs[i][7]; // write back continues
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
                 pc[i] --; //fetch the same pc
@@ -320,6 +326,11 @@ void main(int argc, char *argv[]){
             if(cycles[i] != -1){
                 cycles[i]++;
             }
+
+            for(c=2; c<=14; c++){
+                fprintf(core_trace_files[i], "%08X ",regs[i][c]);
+            }
+            fprintf(core_trace_files[i], "%08X\n",regs[i][15]);
 
         }
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
@@ -853,6 +864,9 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
     if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
         cycles[i] = -1;
         return;
+    }
+    if(pipe_regs[i][6].pc_pipe == -1){
+        fprintf(core_trace_files[i],"--- ");
     }
     int optag = pipe_regs[i][6].op;
     int disttag = pipe_regs[i][6].dist;//the index of the dist register(rd)
