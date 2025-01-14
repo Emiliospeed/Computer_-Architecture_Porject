@@ -229,19 +229,7 @@ int main() {
             continue;
         }
 
-        printf("Contents of %s:\n", filenames[i]);
-        for (int j = 0; j < line_count; j++) {
-            printf("Line %d: %s\n", j + 1, file_contents[i][j]);
-        }
-        printf("\n");
-    }
 
-    // Example: Accessing a specific line from a specific file
-    int file_index = 0; // First file
-    int line_number = 2; // Line number 2 (index starts from 1)
-    if (line_number - 1 < MAX_LINES) {
-        printf("File %s, Line %d: %s\n", filenames[file_index], line_number, file_contents[file_index][line_number - 1]);
-    }
 
     return 0;
 }
