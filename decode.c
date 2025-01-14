@@ -184,6 +184,17 @@ int main() {
             return EXIT_FAILURE;
         }
     }
+    
+    // Free allocated memory
+    for (int i = 0; i < memin_lines; i++) {
+        free(memin[i]); // Free lines from memin
+    }
+    free(memin); // Free memin array
+
+    for (int i = 0; i < MAX_LINES_MEMIN; i++) {
+        free(memout[i]); // Free lines from memout
+    }
+    free(memout); // Free memout array
 
 
 
