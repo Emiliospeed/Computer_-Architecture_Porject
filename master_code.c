@@ -138,7 +138,8 @@ FILE* bus_trace_file;
 
 
 // char* filename,   char ***array,   int*;
-void main(int argc, char *argv[]){
+// void main(int argc, char *argv[]){
+int main(){
     FILE* memout_file;
     FILE* regout_files[NUMBER_CORES];
     FILE* dsram_files[NUMBER_CORES];
@@ -235,7 +236,7 @@ void main(int argc, char *argv[]){
         memout[i] = strdup("00000000");
         if (!memout[i]) {
             perror("Memory allocation failed while adding padding to memout");
-            return;
+            return 0;
         }
     }
 
@@ -366,8 +367,8 @@ void main(int argc, char *argv[]){
 
         }
 
-        if(cycles[0] == 2){
-            return;
+        if(cycles[0] == 3){
+            return 0;
         }
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
             break;
@@ -418,6 +419,7 @@ void main(int argc, char *argv[]){
         fprintf(bus_trace_file,"%08X ",cycles[i]);
         fprintf(bus_trace_file,"%X ",cycles[i]);
     }
+    return 0;
     
 }
 
@@ -607,6 +609,7 @@ void mem(int core_num){
         pipe_regs[core_num][7].rs = pipe_regs[core_num][4].rs;
         pipe_regs[core_num][7].rt = pipe_regs[core_num][4].rd;
     }
+    fprintf(core_trace_files[core_num], "%03d ", pipe_regs[core_num][4].pc_pipe);
 }
 
 // function to check if the data in the dsram (return the core number)
@@ -623,10 +626,10 @@ int data_in_dsram(int core_num, int address){
             char tag_hex[4];
             bin_to_hex(tag, tag_hex);
             int tag_num =  hex_to_int(tag_hex);
-            int mesi_state;
+            //int mesi_state;
             if(*tr == '0'){
                 if(*(tr+1) == '0'){
-                    mesi_state = 0;
+                    //mesi_state = 0;
                     continue;
                 }
             }
@@ -649,7 +652,7 @@ void MESI_bus(){
     static int bus_sharing = -1;
     int source_data;
     int i;
-    int mesi_state;
+    //int mesi_state;
     int block_number;
     if(!bus_busy){
         core_number = dequeue(&core_bus_requests);
@@ -827,6 +830,7 @@ void bin_to_hex(char *bin, char *hex) {
 }
 
 void hex_to_bin(char *bin,char*hex)    { // Lookup table to convert hex digits to binary strings
+    int i;
     char *bin_lookup[] = {
         "0000", "0001", "0010", "0011", 
         "0100", "0101", "0110", "0111", 
@@ -837,7 +841,7 @@ void hex_to_bin(char *bin,char*hex)    { // Lookup table to convert hex digits t
     int binIndex = 0;
 
     // Iterate over each hex digit and map to binary
-    for (int i = 0; i < strlen(hex); i++) {
+    for (i = 0; i < (int)strlen(hex); i++) {
         char hexChar = hex[i];
         int value;
 
@@ -984,6 +988,7 @@ void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and impleme
             pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
             break;
     }
+    fprintf(core_trace_files[i], "%03d ", pipe_regs[i][2].pc_pipe);
 }
 void wb (int i){ //Takes the opcode , destination , output of alu and data from memory (from pipe_regs[i][6]) and according to the opcode he put the correct result in the destination register .
     if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
@@ -992,6 +997,7 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
     }
     if(pipe_regs[i][6].pc_pipe == -1){
         fprintf(core_trace_files[i],"--- ");
+        return;
     }
     int optag = pipe_regs[i][6].op;
     int disttag = pipe_regs[i][6].dist;//the index of the dist register(rd)
@@ -1010,6 +1016,7 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
         regs[i][disttag]=datatag;
         reg_is_available[i][disttag] = 1;
     }
+    fprintf(core_trace_files[i], "%03d ", pipe_regs[i][6].pc_pipe);
 
 }
 
@@ -1271,6 +1278,7 @@ void decode(int i){
     if((sliced_inst[0] >=0 && sliced_inst[0] <=8) || sliced_inst[0] ==16){ // making the distenation reg not available for decoding next instructions.
         reg_is_available[i][sliced_inst[1]] = 0;
     }
+    fprintf(core_trace_files[i], "%03d ",pipe_regs[i][0].pc_pipe);
 }    
 
 
