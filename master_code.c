@@ -134,6 +134,7 @@ int flag_decode_stall[NUMBER_CORES];
 int flag_mem_stall[NUMBER_CORES];
 FILE* core_trace_files[NUMBER_CORES];
 FILE* bus_trace_file;
+int the_end[NUMBER_CORES];
 
 
 
@@ -311,6 +312,7 @@ int main(){
         bus_shared[i] = 0;
         flag_decode_stall[i] = 0;
         flag_mem_stall[i] = 0;
+        the_end[i] = 0;
     }
     bus_counter = 0;
     initializeQueue(&core_bus_requests);
@@ -331,8 +333,15 @@ int main(){
                 cycles[i] = -1;
                 continue;
             }
+            if(i !=0 ){
+                continue;
+            }
 
             fprintf(core_trace_files[i],"%d ",cycles[i]);
+
+            if(cycles[0] == 801){
+                printf("hiiiiiiiiiiii");
+            }
 
             MESI_bus();
             fetch(i);
@@ -345,12 +354,17 @@ int main(){
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
                 pc[i] --; //fetch the same pc
                 if(flag_decode_stall[i] && (!flag_mem_stall[i])){ // if just decode stall
+                    pipe_regs[i][6] = pipe_regs[i][7]; // wb continues
                     pipe_regs[i][4] = pipe_regs[i][5]; // mem continues
                     pipe_regs[i][2] = pipe_regs[i][3]; // alu continues
-                    continue;
+                }
+                else{ // if mem stall
+                    pipe_regs[i][6] = pipe_regs[i][7]; // wb continues
+
                 }
             }
             else{
+                pipe_regs[i][6] = pipe_regs[i][7];
                 pipe_regs[i][4] = pipe_regs[i][5];
                 //strcpy
                 pipe_regs[i][2] = pipe_regs[i][3];
@@ -367,7 +381,8 @@ int main(){
 
         }
 
-        if(cycles[0] == 3){
+        
+        if(cycles[0] == 803){
             return 0;
         }
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
@@ -469,7 +484,7 @@ int read_file(const char *filename, char lines[MAX_LINES][LINE_LENGTH]) {
     }
 
 int line_count = 0;
-    while (fgets(lines[line_count], LINE_LENGTH, file) && line_count < MAX_LINES) {
+    while (fgets(lines[line_count], LINE_LENGTH + 1, file) && line_count < MAX_LINES) {
         // Remove newline character if present
         lines[line_count][strcspn(lines[line_count], "\n")] = '\0';
         line_count++;
@@ -480,6 +495,11 @@ int line_count = 0;
 }
 
 void mem(int core_num){  
+    if(pipe_regs[core_num][4].op == 20){
+        fprintf(core_trace_files[core_num], "%03d ", pipe_regs[core_num][4].pc_pipe);
+        pipe_regs[core_num][7].op = pipe_regs[core_num][4].op;
+        return;
+    }
     if(pc[core_num] == -1 && pipe_regs[core_num][4].pc_pipe == -2){ // reached halt
         fprintf(core_trace_files[core_num], "--- ");
         pipe_regs[core_num][7].pc_pipe = -2;
@@ -798,7 +818,7 @@ void MESI_bus(){
 }
 
 int is_branch(char *command){
-    if(command[0] == '0' && (command[1]=='9' || command[1]=='a' || command[1]=='b' || command[1]=='c' || command[1]=='d' || command[1]=='e' || command[1]=='f'))
+    if(command[0] == '0' && (command[1]=='9' || command[1]=='a' || command[1]=='A' || command[1]=='b'|| command[1]=='B' || command[1]=='c' || command[1]=='C' || command[1]=='d' || command[1]=='D' || command[1]=='e' || command[1]=='E' || command[1]=='f' || command[1]=='F'))
         return 1;
     else
         return 0;
@@ -868,13 +888,23 @@ void hex_to_bin(char *bin,char*hex)    { // Lookup table to convert hex digits t
 }
 
 void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ and the instruction in pipe_regs[i][1] .
+    if(the_end[i] == 1){
+        fprintf(core_trace_files[i], "%03d ", pc[i]);
+        pipe_regs[i][1].pc_pipe = -2; // -2 = halt
+        return;
+    }
+    if(the_end[i] == 2){
+        fprintf(core_trace_files[i], "--- ");
+        pipe_regs[i][1].pc_pipe = -2;
+        return;
+    }
     int h = pc[i];
     if(h == -1){
         fprintf(core_trace_files[i], "--- ");
         pipe_regs[i][1].pc_pipe = -2; // -2 = halt
         return;
     }
-    fprintf(core_trace_files[i], "%03d ", h); //printing the pc in fetch
+    
     //h=h+1;
     
     pipe_regs[i][1].pc_pipe=h;
@@ -883,13 +913,12 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
             for (int k=0;k<LINE_LENGTH;k++){
                 pipe_regs[i][1].inst[k]=Imem0[pc[i]][k];
                 if(pipe_regs[i][1].inst[0] == '1' && pipe_regs[i][1].inst[1] == '4'){
-                    pipe_regs[i][1].pc_pipe = -2;
-                    pc[i] = -1;
+                    pipe_regs[i][1].pc_pipe = h;
                 }
 
             }
             break;
-        case 1:
+        case 1: // must deal with halt
             for (int k=0;k<LINE_LENGTH;k++){
                 pipe_regs[i][1].inst[k]=Imem1[pc[i]][k];
 
@@ -908,6 +937,7 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
             }
             break;
     }   
+    fprintf(core_trace_files[i], "%03d ", h); //printing the pc in fetch
     pc[i]++;     
 }
 //helper func for alu that do an arithmetic shift right
@@ -930,6 +960,11 @@ int arithmetic_shift_right(int num, int shift)
 }
 void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and implement the nine options of the alu instruction according ti the opcode (according to the table given in the project page 4) .
                 //And the only change that save is the output of the alu (ALU_PIPE) in pipe_regs[i][5] .
+    if(pipe_regs[i][2].op == 20){
+        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][2].pc_pipe);
+        pipe_regs[i][5].op = pipe_regs[i][2].op;
+        return;
+    }
     if(pc[i] == -1 && pipe_regs[i][2].pc_pipe == -2){ // reached halt
         fprintf(core_trace_files[i], "--- ");
         pipe_regs[i][5].pc_pipe = -2;
@@ -940,57 +975,72 @@ void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and impleme
         pipe_regs[i][5].pc_pipe = -1;
         return;
     }
+    
     int optag = pipe_regs[i][2].op;
     int rstag = pipe_regs[i][2].rs;
     int rttag = pipe_regs[i][2].rt;
     switch (optag){
         case 0:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe= rstag + rttag;
             break;
         case 1:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] - regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag - rttag;
             break;
         case 2:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] & regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag & rttag;
             break;
         case 3:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] | regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag | rttag;
             break;
         case 4:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] ^ regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag ^ rttag;
             break;
         case 5:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] * regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag * rttag;
             break;
         case 6:
-            if(regs[i][rttag]>=32){
+            if(rttag>=32){
                 pipe_regs[i][5].ALU_pipe = 0;
             }
             else{
-                pipe_regs[i][5].ALU_pipe=regs[i][rstag] << regs[i][rttag];
+                pipe_regs[i][5].ALU_pipe = rstag << rttag;
             }    
             break;
         case 7:
-            pipe_regs[i][5].ALU_pipe=arithmetic_shift_right(regs[i][rstag],regs[i][rttag]);
+            pipe_regs[i][5].ALU_pipe=arithmetic_shift_right(rstag, rttag);
             break;
         case 8:
-            if(regs[i][rttag]>=32){
+            if(rttag>=32){
                 pipe_regs[i][5].ALU_pipe = 0;
             }
             else{
-                pipe_regs[i][5].ALU_pipe=regs[i][rstag] >> regs[i][rttag];
+                pipe_regs[i][5].ALU_pipe=rstag >> rttag;
             }    
             break;
 	case 16:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe=rstag + rttag;
             break;
 	case 17:
-            pipe_regs[i][5].ALU_pipe=regs[i][rstag] + regs[i][rttag];
+            pipe_regs[i][5].ALU_pipe = rstag + rttag;
             break;
     }
+
+    pipe_regs[i][5].pc_pipe = pipe_regs[i][2].pc_pipe;
+    strcpy(pipe_regs[i][5].inst, pipe_regs[i][2].inst);
+    pipe_regs[i][5].op = pipe_regs[i][2].op;
+    pipe_regs[i][5].rd = pipe_regs[i][2].rd;
+    pipe_regs[i][5].rs = pipe_regs[i][2].rs;
+    pipe_regs[i][5].rt = pipe_regs[i][2].rt;
+    pipe_regs[i][5].imm = pipe_regs[i][2].imm;
+    pipe_regs[i][5].dist = pipe_regs[i][2].dist;
+
     fprintf(core_trace_files[i], "%03d ", pipe_regs[i][2].pc_pipe);
 }
 void wb (int i){ //Takes the opcode , destination , output of alu and data from memory (from pipe_regs[i][6]) and according to the opcode he put the correct result in the destination register .
+    if(pipe_regs[i][6].op == 20){
+        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][6].pc_pipe);
+        return;
+    }
     if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
         cycles[i] = -1;
         return;
@@ -1034,6 +1084,13 @@ void slice_inst(char * input, int output[]) { // add int sliced_inst[5];
 
 
 void decode(int i){
+    if(pipe_regs[i][0].inst[0] == '1' && pipe_regs[i][0].inst[1] == '4'){
+        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][0].pc_pipe);
+        pipe_regs[i][3].op = pipe_regs[i][0].op;
+        pc[i] = -1;
+        the_end[i] += 1;
+        return;
+    }
     if(pc[i] == -1 && pipe_regs[i][0].pc_pipe == -2){ // reached halt
         pipe_regs[i][3].pc_pipe = -2;
         fprintf(core_trace_files[i], "--- ");
@@ -1052,7 +1109,7 @@ void decode(int i){
     //should each of these be done on each attribute {op,rd,rs,rt...?}
     slice_inst(pipe_regs[i][0].inst, sliced_inst);
 
-    if(sliced_inst[0] != 15 && sliced_inst[0] != 20){ // rd is not a source reg
+    if(sliced_inst[0] <=8 || sliced_inst[0] ==16){ // rd is not a source reg
         if(!(reg_is_available[i][sliced_inst[2]] && reg_is_available[i][sliced_inst[3]])){
             if(reg_is_available[i][sliced_inst[0]] == 17){ // if op is sw we should check if rd is available
                 if(!reg_is_available[i][sliced_inst[1]]){
@@ -1068,7 +1125,7 @@ void decode(int i){
             return;
         }
     }
-    else if(sliced_inst[0] == 15){
+    else {
         if(!(reg_is_available[i][sliced_inst[1]] )){
             decode_stall[i] ++;
             flag_decode_stall[i] = 1;
@@ -1088,7 +1145,7 @@ void decode(int i){
     
     pipe_regs[i][3].op = sliced_inst[0];
     
-    my_imm = regs[i][sliced_inst[4]];
+    my_imm = sliced_inst[4];
 
     //rd
     if(sliced_inst[1] == 1){
@@ -1122,6 +1179,8 @@ void decode(int i){
     //dist 
     pipe_regs[i][3].dist = sliced_inst[1];
     
+    //printing the pc in decode
+    fprintf(core_trace_files[i], "%03d ",pipe_regs[i][0].pc_pipe);
 
     //branching 
 
@@ -1278,7 +1337,7 @@ void decode(int i){
     if((sliced_inst[0] >=0 && sliced_inst[0] <=8) || sliced_inst[0] ==16){ // making the distenation reg not available for decoding next instructions.
         reg_is_available[i][sliced_inst[1]] = 0;
     }
-    fprintf(core_trace_files[i], "%03d ",pipe_regs[i][0].pc_pipe);
+    
 }    
 
 
