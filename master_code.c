@@ -316,6 +316,9 @@ int main(){
     }
     bus_counter = 0;
     initializeQueue(&core_bus_requests);
+    initializeQueue(&bus_origid);
+    initializeQueue(&bus_cmd);
+    initializeQueue(&bus_address);
     bus_busy = 0;
     who_flush = 4;
     who_needs = 4; 
@@ -333,16 +336,21 @@ int main(){
                 cycles[i] = -1;
                 continue;
             }
-            if(i !=0 ){
+            if(i != 3 ){
+                cycles[i] = -1;
                 continue;
             }
 
             fprintf(core_trace_files[i],"%d ",cycles[i]);
 
-            if(cycles[0] == 801){
+
+            if(cycles[3] == 1625){
                 printf("hiiiiiiiiiiii");
             }
 
+            /*if(bus_counter == 18){
+                printf("hiiiiiiiiiiii");
+            }*/
             MESI_bus();
             fetch(i);
             decode(i);
@@ -352,7 +360,9 @@ int main(){
             
             pipe_regs[i][6] = pipe_regs[i][7]; // write back continues
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
-                pc[i] --; //fetch the same pc
+                if(pc[i] >= 0){
+                    pc[i] --; //fetch the same pc
+                }
                 if(flag_decode_stall[i] && (!flag_mem_stall[i])){ // if just decode stall
                     pipe_regs[i][6] = pipe_regs[i][7]; // wb continues
                     pipe_regs[i][4] = pipe_regs[i][5]; // mem continues
@@ -374,15 +384,10 @@ int main(){
                 cycles[i]++;
             }
 
-            for(c=2; c<=14; c++){
-                fprintf(core_trace_files[i], "%08X ",regs[i][c]);
-            }
-            fprintf(core_trace_files[i], "%08X\n",regs[i][15]);
-
         }
 
         
-        if(cycles[0] == 803){
+        if(cycles[3] == 1630){
             return 0;
         }
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
@@ -496,8 +501,9 @@ int line_count = 0;
 
 void mem(int core_num){  
     if(pipe_regs[core_num][4].op == 20){
-        fprintf(core_trace_files[core_num], "%03d ", pipe_regs[core_num][4].pc_pipe);
+        fprintf(core_trace_files[core_num], "%03X ", pipe_regs[core_num][4].pc_pipe);
         pipe_regs[core_num][7].op = pipe_regs[core_num][4].op;
+        pipe_regs[core_num][7].pc_pipe = pipe_regs[core_num][4].pc_pipe;
         return;
     }
     if(pc[core_num] == -1 && pipe_regs[core_num][4].pc_pipe == -2){ // reached halt
@@ -551,6 +557,7 @@ void mem(int core_num){
                     enqueue(&bus_cmd, BusRd);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
             }
@@ -561,6 +568,7 @@ void mem(int core_num){
                     enqueue(&bus_cmd, BusRd);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
                 else{ // modified or shared
@@ -570,6 +578,7 @@ void mem(int core_num){
                     enqueue(&bus_cmd, Flush);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
             }
@@ -584,6 +593,7 @@ void mem(int core_num){
                     enqueue(&bus_cmd, BusRdX);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
             }
@@ -594,6 +604,7 @@ void mem(int core_num){
                     enqueue(&bus_cmd, BusRdX);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
                 else{ // modified or shared
@@ -603,13 +614,14 @@ void mem(int core_num){
                     enqueue(&bus_cmd, Flush);
                     enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
+                    alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
             }
         }
     }
     if(core_ready[core_num] == 1){
-        flag_mem_stall[core_num] = 0;
+        alredy_enqueued[core_num] = 0;
         if(op == 16){ // lw
             data = hex_to_int(Dsram[core_num][index]);
         }
@@ -627,9 +639,12 @@ void mem(int core_num){
         pipe_regs[core_num][7].pc_pipe = pipe_regs[core_num][4].pc_pipe;
         pipe_regs[core_num][7].rd = pipe_regs[core_num][4].rd;
         pipe_regs[core_num][7].rs = pipe_regs[core_num][4].rs;
-        pipe_regs[core_num][7].rt = pipe_regs[core_num][4].rd;
+        pipe_regs[core_num][7].rt = pipe_regs[core_num][4].rt;
     }
-    fprintf(core_trace_files[core_num], "%03d ", pipe_regs[core_num][4].pc_pipe);
+    else{
+        pipe_regs[core_num][7].pc_pipe = -1;
+    }
+    fprintf(core_trace_files[core_num], "%03X ", pipe_regs[core_num][4].pc_pipe);
 }
 
 // function to check if the data in the dsram (return the core number)
@@ -691,9 +706,9 @@ void MESI_bus(){
         }
         if(bus_cmd_mesi == BusRd || bus_cmd_mesi == BusRdX){
             fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
-            fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-            fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-            fprintf(bus_trace_file,"%05x ",bus_address_mesi);
+            fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+            fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+            fprintf(bus_trace_file,"%05X ",bus_address_mesi);
             fprintf(bus_trace_file,"00000000 0\n");
             who_needs = bus_origid_mesi;
             for(i=0;i<=3;i++){
@@ -747,11 +762,11 @@ void MESI_bus(){
         bus_counter++;
         if(bus_counter>0 && bus_counter<5){ // the data is shared ,then we start giving the words from the first cycle
             if(bus_sharing == 1){
-                strcpy(Dsram[who_needs][bus_address_mesi + bus_counter - 1], Dsram[who_flush][bus_address_mesi + bus_counter - 1]);
+                strcpy(Dsram[who_needs][block_number*4 + bus_counter - 1], Dsram[who_flush][block_number*4 + bus_counter - 1]);
                 fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
-                fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-                fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-                fprintf(bus_trace_file,"%05x ",bus_address_mesi);
+                fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+                fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+                fprintf(bus_trace_file,"%05X ",bus_address_mesi);
                 fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 1]);
                 fprintf(bus_trace_file,"1\n");
                 
@@ -759,22 +774,22 @@ void MESI_bus(){
         }
         if(bus_counter >= 16){
             
-            if((!(bus_sharing == 1)) && who_needs != 4){ // the data was not shared (giving the core)
-                strcpy(Dsram[who_needs][bus_address_mesi + bus_counter - 16], Dsram[who_flush][bus_address_mesi + bus_counter - 16]);
+            if((!(bus_sharing == 1)) && who_needs != 4 && bus_counter != 19){ // the data was not shared (giving the core)
+                strcpy(Dsram[who_needs][block_number*4 + bus_counter - 16], memout[bus_address_mesi + bus_counter - 16]);
                 fprintf(bus_trace_file,"%d ",cycles[who_needs]);
-                fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-                fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-                fprintf(bus_trace_file,"%05x ",bus_address_mesi);
-                fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
+                fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+                fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+                fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
                 fprintf(bus_trace_file,"1\n");
             }
             if(who_flush != 4){ // main memory not flushing then we give it data
-                strcpy(memout[bus_address_mesi + bus_counter - 16], Dsram[who_flush][bus_address_mesi  + bus_counter - 16]);
+                strcpy(memout[bus_address_mesi + bus_counter - 16], Dsram[who_flush][block_number*4 + bus_counter - 16]);
                 if(who_needs == 4){
                     fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
-                    fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-                    fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05x ",bus_address_mesi);
+                    fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+                    fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
                     fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
                     fprintf(bus_trace_file,"1\n");
                 }
@@ -782,20 +797,19 @@ void MESI_bus(){
             if(bus_counter == 19){ //we gave all the words neede and returning to the default settings
                 if(who_needs != 4){
                     fprintf(bus_trace_file,"%d ",cycles[who_needs]);
-                    fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-                    fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05x ",bus_address_mesi);
-                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
-                    fprintf(bus_trace_file,"1\n");
+                    fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+                    fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
+                    fprintf(bus_trace_file,"1 \n");
                     core_ready[who_needs] = 1;
-                    alredy_enqueued[who_needs] = 0;
                 }
                 else{
                     fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
-                    fprintf(bus_trace_file,"%x ",bus_origid_mesi);
-                    fprintf(bus_trace_file,"%x ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05x ",bus_address_mesi);
-                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
+                    fprintf(bus_trace_file,"%X ",bus_origid_mesi);
+                    fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
+                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
                     fprintf(bus_trace_file,"1\n");
                 }
                 if((who_flush !=4) && need_flush[who_flush] == 1){ // converting the mesi state to invalid
@@ -805,6 +819,7 @@ void MESI_bus(){
                 }
                 bus_counter = 0;
                 bus_busy = 0;
+                flag_mem_stall[who_needs] = 0;
                 who_flush = 4;
                 who_needs = 4;
                 bus_shared[0] = 0;
@@ -889,9 +904,12 @@ void hex_to_bin(char *bin,char*hex)    { // Lookup table to convert hex digits t
 
 void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ and the instruction in pipe_regs[i][1] .
     if(the_end[i] == 1){
-        fprintf(core_trace_files[i], "%03d ", pc[i]);
-        pipe_regs[i][1].pc_pipe = -2; // -2 = halt
+        fprintf(core_trace_files[i], "--- ");
+        pipe_regs[i][1].pc_pipe = -2;
         return;
+        /*fprintf(core_trace_files[i], "%03d ", pc[i]);
+        pipe_regs[i][1].pc_pipe = -2; // -2 = halt
+        return;*/
     }
     if(the_end[i] == 2){
         fprintf(core_trace_files[i], "--- ");
@@ -937,7 +955,7 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
             }
             break;
     }   
-    fprintf(core_trace_files[i], "%03d ", h); //printing the pc in fetch
+    fprintf(core_trace_files[i], "%03X ", h); //printing the pc in fetch
     pc[i]++;     
 }
 //helper func for alu that do an arithmetic shift right
@@ -961,12 +979,14 @@ int arithmetic_shift_right(int num, int shift)
 void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and implement the nine options of the alu instruction according ti the opcode (according to the table given in the project page 4) .
                 //And the only change that save is the output of the alu (ALU_PIPE) in pipe_regs[i][5] .
     if(pipe_regs[i][2].op == 20){
-        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][2].pc_pipe);
+        fprintf(core_trace_files[i], "%03X ", pipe_regs[i][2].pc_pipe);
         pipe_regs[i][5].op = pipe_regs[i][2].op;
+        pipe_regs[i][5].pc_pipe = pipe_regs[i][2].pc_pipe;
         return;
     }
     if(pc[i] == -1 && pipe_regs[i][2].pc_pipe == -2){ // reached halt
         fprintf(core_trace_files[i], "--- ");
+        pipe_regs[i][5].op = -1;
         pipe_regs[i][5].pc_pipe = -2;
         return;
     }
@@ -1034,11 +1054,16 @@ void alu (int i){ // Takes opcode , rs and rd (from pipe_regs[i][2]) and impleme
     pipe_regs[i][5].imm = pipe_regs[i][2].imm;
     pipe_regs[i][5].dist = pipe_regs[i][2].dist;
 
-    fprintf(core_trace_files[i], "%03d ", pipe_regs[i][2].pc_pipe);
+    fprintf(core_trace_files[i], "%03X ", pipe_regs[i][2].pc_pipe);
 }
 void wb (int i){ //Takes the opcode , destination , output of alu and data from memory (from pipe_regs[i][6]) and according to the opcode he put the correct result in the destination register .
+    int c;
     if(pipe_regs[i][6].op == 20){
-        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][6].pc_pipe);
+        fprintf(core_trace_files[i], "%03X ", pipe_regs[i][6].pc_pipe);
+        for(c=2; c<=14; c++){
+        fprintf(core_trace_files[i], "%08X ",regs[i][c]);
+        }
+        fprintf(core_trace_files[i], "%08X \n",regs[i][15]);
         return;
     }
     if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
@@ -1047,8 +1072,20 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
     }
     if(pipe_regs[i][6].pc_pipe == -1){
         fprintf(core_trace_files[i],"--- ");
+        for(c=2; c<=14; c++){
+        fprintf(core_trace_files[i], "%08X ",regs[i][c]);
+        }
+        fprintf(core_trace_files[i], "%08X \n",regs[i][15]);
         return;
     }
+
+    fprintf(core_trace_files[i], "%03X ", pipe_regs[i][6].pc_pipe);
+    
+    for(c=2; c<=14; c++){
+        fprintf(core_trace_files[i], "%08X ",regs[i][c]);
+    }
+    fprintf(core_trace_files[i], "%08X \n",regs[i][15]);
+
     int optag = pipe_regs[i][6].op;
     int disttag = pipe_regs[i][6].dist;//the index of the dist register(rd)
     int ALU_pipetag = pipe_regs[i][6].ALU_pipe;//outp of the alu
@@ -1066,7 +1103,7 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
         regs[i][disttag]=datatag;
         reg_is_available[i][disttag] = 1;
     }
-    fprintf(core_trace_files[i], "%03d ", pipe_regs[i][6].pc_pipe);
+
 
 }
 
@@ -1084,11 +1121,19 @@ void slice_inst(char * input, int output[]) { // add int sliced_inst[5];
 
 
 void decode(int i){
+    if(the_end[i] == 1 || the_end[i] == 2){
+        fprintf(core_trace_files[i], "--- ");
+        pipe_regs[i][3].op = -1;
+        pipe_regs[i][3].pc_pipe = -2;
+        the_end[i] = 2;
+        return;
+    }
     if(pipe_regs[i][0].inst[0] == '1' && pipe_regs[i][0].inst[1] == '4'){
-        fprintf(core_trace_files[i], "%03d ", pipe_regs[i][0].pc_pipe);
-        pipe_regs[i][3].op = pipe_regs[i][0].op;
+        fprintf(core_trace_files[i], "%03X ", pipe_regs[i][0].pc_pipe);
+        pipe_regs[i][3].op = 20;
+        pipe_regs[i][3].pc_pipe = pipe_regs[i][0].pc_pipe;
         pc[i] = -1;
-        the_end[i] += 1;
+        the_end[i] = 1;
         return;
     }
     if(pc[i] == -1 && pipe_regs[i][0].pc_pipe == -2){ // reached halt
@@ -1101,6 +1146,7 @@ void decode(int i){
         return;
     }
 
+    fprintf(core_trace_files[i], "%03X ",pipe_regs[i][0].pc_pipe);
     int sliced_inst[5] = {0};
     int reg_d = 0;
     int reg_s = 0;
@@ -1126,7 +1172,7 @@ void decode(int i){
         }
     }
     else {
-        if(!(reg_is_available[i][sliced_inst[1]] )){
+        if((!(reg_is_available[i][sliced_inst[1]] )) || (!(reg_is_available[i][sliced_inst[2]])) || (!(reg_is_available[i][sliced_inst[3]]))){
             decode_stall[i] ++;
             flag_decode_stall[i] = 1;
             pipe_regs[i][3].pc_pipe = -1;
@@ -1179,8 +1225,7 @@ void decode(int i){
     //dist 
     pipe_regs[i][3].dist = sliced_inst[1];
     
-    //printing the pc in decode
-    fprintf(core_trace_files[i], "%03d ",pipe_regs[i][0].pc_pipe);
+
 
     //branching 
 
