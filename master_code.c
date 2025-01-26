@@ -1,3 +1,4 @@
+// last check : 26.01 - 15:40
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -135,6 +136,7 @@ int flag_mem_stall[NUMBER_CORES];
 FILE* core_trace_files[NUMBER_CORES];
 FILE* bus_trace_file;
 int the_end[NUMBER_CORES];
+int we_finished;
 
 
 
@@ -233,36 +235,42 @@ int main(){
         }
 
     read_file_into_array_memin(memin_txt, &memout, &memin_lines);
+    
     for (i = memin_lines; i < MAX_LINE_MEMIN; i++) {
-        memout[i] = strdup("00000000");
+        memout[i] = strdup("00000000\0");
         if (!memout[i]) {
             perror("Memory allocation failed while adding padding to memout");
             return 0;
         }
     }
 
-    memout_file = fopen(memout_txt, "w");
-    regout_files[0] = fopen(regout0_txt, "w");
-    regout_files[1] = fopen(regout1_txt, "w");
-    regout_files[2] = fopen(regout2_txt, "w");
-    regout_files[3] = fopen(regout3_txt, "w");
+
     core_trace_files[0] = fopen(core0trace_txt, "w");
+    if (!core_trace_files[0]) {
+        perror("Error opening file");
+        return 0;
+    }
     core_trace_files[1] = fopen(core1trace_txt, "w");
+    if (!core_trace_files[1]) {
+        perror("Error opening file");
+        return 0;
+    }
     core_trace_files[2] = fopen(core2trace_txt, "w");
+    if (!core_trace_files[2]) {
+        perror("Error opening file");
+        return 0;
+    }
     core_trace_files[3] = fopen(core3trace_txt, "w");
+    if (!core_trace_files[3]) {
+        perror("Error opening file");
+        return 0;
+    }
     bus_trace_file = fopen(bustrace_txt, "w");
-    dsram_files[0] = fopen(dsram0_txt, "w");
-    dsram_files[1] = fopen(dsram1_txt, "w");
-    dsram_files[2] = fopen(dsram2_txt, "w");
-    dsram_files[3] = fopen(dsram3_txt, "w");
-    tsram_files[0] = fopen(tsram0_txt, "w");
-    tsram_files[1] = fopen(tsram1_txt, "w");
-    tsram_files[2] = fopen(tsram2_txt, "w");
-    tsram_files[3] = fopen(tsram3_txt, "w");
-    stats_files[0] = fopen(stats0_txt, "w");
-    stats_files[1] = fopen(stats1_txt, "w");
-    stats_files[2] = fopen(stats2_txt, "w");
-    stats_files[3] = fopen(stats3_txt, "w");
+    if (!bus_trace_file) {
+        perror("Error opening file");
+        return 0;
+    }
+
 
 
     for(i=0; i<NUMBER_CORES; i++){
@@ -287,8 +295,8 @@ int main(){
         }
 
         for(c=0; c<NUMBER_BLOCKS; c++){
-            for(k=0; k<LINE_LENGTH; k++){
-                if (k == (LINE_LENGTH-1)){
+            for(k=0; k<15; k++){ 
+                if (k == 14){
                     Tsram[i][c][k] = '\0';
                 }
                 else{
@@ -314,6 +322,7 @@ int main(){
         flag_mem_stall[i] = 0;
         the_end[i] = 0;
     }
+    we_finished = 0;
     bus_counter = 0;
     initializeQueue(&core_bus_requests);
     initializeQueue(&bus_origid);
@@ -330,33 +339,41 @@ int main(){
 
 
     while(1){
+        MESI_bus();
         for(i=0; i<4; i++){
+            if(i == 3){
+                printf("cycles[3] = %d\n", cycles[3]);
+            }
             if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){
                 // here we can write the total cycles in states file
                 cycles[i] = -1;
                 continue;
             }
-            if(i != 3 ){
+            /*
+            if(i != 2 ){
                 cycles[i] = -1;
                 continue;
             }
+            */
 
             fprintf(core_trace_files[i],"%d ",cycles[i]);
 
-
-            if(cycles[3] == 1625){
-                printf("hiiiiiiiiiiii");
+            //printf("cycles[2] = %d\n", cycles[2]);
+            /*
+            if(i==2){
+                printf("cycles[2] = %d\n", cycles[2]);
             }
+            */
 
             /*if(bus_counter == 18){
                 printf("hiiiiiiiiiiii");
             }*/
-            MESI_bus();
             fetch(i);
             decode(i);
             alu(i);
             mem(i);
             wb(i);
+
             
             pipe_regs[i][6] = pipe_regs[i][7]; // write back continues
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
@@ -384,28 +401,133 @@ int main(){
                 cycles[i]++;
             }
 
+            fflush(core_trace_files[i]);
+
         }
+        fflush(bus_trace_file);
 
         
-        if(cycles[3] == 1630){
+        /*
+        if(cycles[2] == 1181){
             return 0;
         }
+        */
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
             break;
         }
 
     }
-    
+
+    we_finished = 1;
+
+    for(i=0; i<NUMBER_CORES; i++){
+        fclose(core_trace_files[i]);
+    }
+
+    for(i=0; i<20; i++){
+        MESI_bus();
+    }
+
+
+    regout_files[0] = fopen(regout0_txt, "w");
+    if (!regout_files[0]) {
+        perror("Error opening file");
+        return 0;
+    }
+    regout_files[1] = fopen(regout1_txt, "w");
+    if (!regout_files[1]) {
+        perror("Error opening file");
+        return 0;
+    }
+    regout_files[2] = fopen(regout2_txt, "w");
+    if (!regout_files[2]) {
+        perror("Error opening file");
+        return 0;
+    }
+    regout_files[3] = fopen(regout3_txt, "w");
+    if (!regout_files[3]) {
+        perror("Error opening file");
+        return 0;
+    }
+
+
+
     for(int h =0;h<=13;h++){
         fprintf(regout_files[0],"%08X\n",regs[0][h+2]);
         fprintf(regout_files[1],"%08X\n",regs[1][h+2]);
         fprintf(regout_files[2],"%08X\n",regs[2][h+2]);
         fprintf(regout_files[3],"%08X\n",regs[3][h+2]);
     }
+    fclose(regout_files[0]);
+    fclose(regout_files[1]);
+    fclose(regout_files[2]);
+    fclose(regout_files[3]);
+
+    dsram_files[0] = fopen(dsram0_txt, "w");
+    if (!dsram_files[0]) {
+        perror("Error opening file");
+        return 0;
+    }
+    dsram_files[1] = fopen(dsram1_txt, "w");
+    if (!dsram_files[1]) {
+        perror("Error opening file");
+        return 0;
+    }
+    dsram_files[2] = fopen(dsram2_txt, "w");
+    if (!dsram_files[2]) {
+        perror("Error opening file");
+        return 0;
+    }
+    dsram_files[3] = fopen(dsram3_txt, "w");
+    if (!dsram_files[3]) {
+        perror("Error opening file");
+        return 0;
+    }
+    tsram_files[0] = fopen(tsram0_txt, "w");
+    if (!tsram_files[0]) {
+        perror("Error opening file");
+        return 0;
+    }
+    tsram_files[1] = fopen(tsram1_txt, "w");
+    if (!tsram_files[1]) {
+        perror("Error opening file");
+        return 0;
+    }
+    tsram_files[2] = fopen(tsram2_txt, "w");
+    if (!tsram_files[2]) {
+        perror("Error opening file");
+        return 0;
+    }
+    tsram_files[3] = fopen(tsram3_txt, "w");
+    if (!tsram_files[3]) {
+        perror("Error opening file");
+        return 0;
+    }
+    stats_files[0] = fopen(stats0_txt, "w");
+    if (!stats_files[0]) {
+        perror("Error opening file");
+        return 0;
+    }
+    stats_files[1] = fopen(stats1_txt, "w");
+    if (!stats_files[1]) {
+        perror("Error opening file");
+        return 0;
+    }
+    stats_files[2] = fopen(stats2_txt, "w");
+    if (!stats_files[2]) {
+        perror("Error opening file");
+        return 0;
+    }
+    stats_files[3] = fopen(stats3_txt, "w");
+    if (!stats_files[3]) {
+        perror("Error opening file");
+        return 0;
+    }
     
     for(i=0;i<=3;i++){
         fprintf(stats_files[i],"Cycles %d\n instructions %d\n read_hit %d\n write_hit %d\n read_miss %d\n write_miss %d\n decode_stall %d\n mem_stall %d\n",
         cycles[i], instructions[i], read_hit[i], write_hit[i], read_miss[i], write_miss[i], decode_stall[i], mem_stall[i] );
+        fflush(stats_files[i]);
 
         for(c=0; c<DSRAM_SIZE; c++){
             for(k=0; k< 8; k++){
@@ -413,38 +535,67 @@ int main(){
             }
             fprintf(dsram_files[i], "\n");
         }
+        fflush(dsram_files[i]);
 
         for(c=0 ; c<NUMBER_BLOCKS; c++){
-            char hex[9];
+            char hex[9];                     /////////////////////the prblem is here
             bin_to_hex(Tsram[i][c], hex);
             for(k=0; k<8; k++){
                 fprintf(tsram_files[i],"%c" , Tsram[i][c][k]);
             }
             fprintf(tsram_files[i], "\n");
         }
+        fflush(tsram_files[i]);
         
     }
 
+    for(i=0; i<NUMBER_CORES; i++){
+        fclose(stats_files[i]);
+        fclose(tsram_files[i]);
+        fclose(dsram_files[i]);
+    }
+
+
+    
+    memout_file = fopen(memout_txt, "w");
+    if (!memout_file) {
+        perror("Error opening file");
+        return 0;
+    }
     for(i=0; i<MAX_LINE_MEMIN; i++){
         for(c=0; c<8; c++){
             fprintf(memout_file,"%c", memout[i][c]); //  may need to put diffrent indexes
         }
         fprintf(memout_file, "\n");
     }
-    if(bus_cmd.front!=0){
-        fprintf(bus_trace_file,"%d ",cycles[i]);
-        fprintf(bus_trace_file,"%X ",cycles[i]);
-        fprintf(bus_trace_file,"%X ",cycles[i]);
-        fprintf(bus_trace_file,"%05X ",cycles[i]);
-        fprintf(bus_trace_file,"%08X ",cycles[i]);
-        fprintf(bus_trace_file,"%X ",cycles[i]);
+    for(i=0; i<MAX_LINE_MEMIN; i++){
+        free(memout[i]);
     }
+    free(memout);
+    fclose(memout_file);
+    fclose(bus_trace_file);
+
     return 0;
+
+/*
+    free(memout);
+
+    fflush(memout_file);
+    fflush(bus_trace_file);
+    for(i=0;i<NUMBER_CORES; i++){
+        fflush(regout_files[i]);
+        fflush(core_trace_files[i]);
+        fflush(dsram_files[i]);
+        fflush(tsram_files[i]);
+        fflush(stats_files[i]);
+    }
+*/
     
 }
 
 
 void read_file_into_array_memin(const char *filename, char ***array, int *line_count) {
+    int even = 0;
     FILE *file = fopen(filename, "r");
     if (!file) {
         perror("Error opening file");
@@ -468,13 +619,16 @@ void read_file_into_array_memin(const char *filename, char ***array, int *line_c
         buffer[strcspn(buffer, "\n")] = '\0';
 
         // Allocate memory for the line and store it
-        (*array)[*line_count] = strdup(buffer);
-        if (!(*array)[*line_count]) {
-            perror("Memory allocation failed");
-            fclose(file);
-            exit(EXIT_FAILURE);
-        }
+        if(!even){
+            (*array)[*line_count] = strdup(buffer);
+            if (!(*array)[*line_count]) {
+                perror("Memory allocation failed");
+                fclose(file);
+                exit(EXIT_FAILURE);
+            }
         (*line_count)++;
+        }
+        even = 1 - even;
     }
 
     fclose(file);
@@ -620,12 +774,17 @@ void mem(int core_num){
             }
         }
     }
+    
     if(core_ready[core_num] == 1){
         alredy_enqueued[core_num] = 0;
         if(op == 16){ // lw
             data = hex_to_int(Dsram[core_num][index]);
         }
         if(op == 17){ // sw
+            if(mesi_state == 2){
+                Tsram[core_num][block][0] = '1'; // modified
+                Tsram[core_num][block][1] = '1';
+            }
             int_to_hex(pipe_regs[core_num][4].rd, Dsram[core_num][index]);
         }
 
@@ -656,7 +815,7 @@ int data_in_dsram(int core_num, int address){
     to_ret = 4;
     for(i=0; i<NUMBER_CORES; i++){
         if(i != core_num){
-            char *tr = Tsram[core_num][block];
+            char *tr = Tsram[i][block];
             char *tag = tr + 2;
             char tag_hex[4];
             bin_to_hex(tag, tag_hex);
@@ -686,9 +845,10 @@ void MESI_bus(){
     static int bus_address_mesi = -1;
     static int bus_sharing = -1;
     int source_data;
-    int i;
+    int i,j, not_equals;
     //int mesi_state;
     int block_number;
+    not_equals = 0;
     if(!bus_busy){
         core_number = dequeue(&core_bus_requests);
         bus_origid_mesi =  dequeue(&bus_origid);
@@ -697,7 +857,8 @@ void MESI_bus(){
         if(core_number == -1){
             return;
         }
-        
+
+        block_number = (bus_address_mesi/4)%NUMBER_BLOCKS;
         
         // check if the data is in another dsram , if so the bus_shared = 1
         source_data = data_in_dsram(core_number, bus_address_mesi);
@@ -712,15 +873,37 @@ void MESI_bus(){
             fprintf(bus_trace_file,"00000000 0\n");
             who_needs = bus_origid_mesi;
             for(i=0;i<=3;i++){
-                if(bus_origid_mesi == i) continue;
+                if((bus_origid_mesi == i) && bus_sharing != 1){
+                    if(bus_cmd_mesi == BusRd){
+                        Tsram[i][block_number][0] = '1'; // exclusive
+                        Tsram[i][block_number][1] = '0';
+                        continue;
+                    }
+                    if(bus_cmd_mesi == BusRdX){
+                        Tsram[i][block_number][0] = '1'; // modified
+                        Tsram[i][block_number][1] = '1';
+                        continue;
+                    }
+                }
+
+                for(j=2;j<15;j++){ //check if both tags are equal.
+                    if(Tsram[i][block_number][j] != Tsram[bus_origid_mesi][block_number][j]){
+                        not_equals = 1;
+                        break;
+                    }
+                }
+                if(not_equals){
+                    continue;
+                }
                 if(sharing_block[i] == 1){
-                    block_number = (bus_address_mesi/4)%NUMBER_BLOCKS;
+                    
                     if((Tsram[i][block_number][0] == '1')  && (Tsram[i][block_number][1] == '1')){ // if the messi_state is modified
                         who_flush = i;
                         if(bus_cmd_mesi == BusRd){ 
                             Tsram[i][block_number][0] = '0'; // modified --> shared
                             Tsram[bus_origid_mesi][block_number][0] = '0'; // change state to shared of the origid core
                             Tsram[bus_origid_mesi][block_number][1] = '1';
+                            
                         }
                         if(bus_cmd_mesi == BusRdX){
                             Tsram[i][block_number][0] = '0'; // modified --> invalid
@@ -728,6 +911,10 @@ void MESI_bus(){
                             Tsram[bus_origid_mesi][block_number][0] = '1';// change state to modified of the origid core
                             Tsram[bus_origid_mesi][block_number][1] = '1';
                         }
+                        bus_origid_mesi = who_flush;
+                        bus_cmd_mesi = Flush;
+                        bus_busy = 1;
+                        return;
                     }
                     else{ //bus_shared and not modified then the block is exclusive or shared
                         if(bus_cmd_mesi == BusRd){// changing state to shared
@@ -763,10 +950,10 @@ void MESI_bus(){
         if(bus_counter>0 && bus_counter<5){ // the data is shared ,then we start giving the words from the first cycle
             if(bus_sharing == 1){
                 strcpy(Dsram[who_needs][block_number*4 + bus_counter - 1], Dsram[who_flush][block_number*4 + bus_counter - 1]);
-                fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
+                fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                 fprintf(bus_trace_file,"%X ",bus_origid_mesi);
                 fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
-                fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                fprintf(bus_trace_file,"%05X ",bus_address_mesi + bus_counter - 1);
                 fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 1]);
                 fprintf(bus_trace_file,"1\n");
                 
@@ -774,26 +961,48 @@ void MESI_bus(){
         }
         if(bus_counter >= 16){
             
-            if((!(bus_sharing == 1)) && who_needs != 4 && bus_counter != 19){ // the data was not shared (giving the core)
+            if((!(bus_sharing == 1)) && who_needs != 4 && bus_counter < 20){ // the data was not shared (giving the core)
+                /*
+                for(i=0; i<LINE_LENGTH-1; i++){
+                    Dsram[who_needs][block_number*4 + bus_counter - 16][i] = memout[bus_address_mesi + bus_counter - 16][i];
+                }
+                Dsram[who_needs][block_number*4 + bus_counter - 16][i] = '\0';
+                */
                 strcpy(Dsram[who_needs][block_number*4 + bus_counter - 16], memout[bus_address_mesi + bus_counter - 16]);
                 fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                 fprintf(bus_trace_file,"%X ",bus_origid_mesi);
                 fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
-                fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                fprintf(bus_trace_file,"%05X ",bus_address_mesi + bus_counter - 16);
                 fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
-                fprintf(bus_trace_file,"1\n");
+                if(bus_sharing == 1){
+                    fprintf(bus_trace_file,"1\n");
+                }
+                else{
+                    fprintf(bus_trace_file,"0\n");
+                }
             }
             if(who_flush != 4){ // main memory not flushing then we give it data
                 strcpy(memout[bus_address_mesi + bus_counter - 16], Dsram[who_flush][block_number*4 + bus_counter - 16]);
-                if(who_needs == 4){
-                    fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
+                if(who_needs == 4 && we_finished == 0){
+                    fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                     fprintf(bus_trace_file,"%X ",bus_origid_mesi);
                     fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
+                    fprintf(bus_trace_file,"%05X ",bus_address_mesi + bus_counter - 16);
                     fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
-                    fprintf(bus_trace_file,"1\n");
+                    if(bus_sharing == 1){
+                        fprintf(bus_trace_file,"1\n");
+                    }
+                    else{
+                        fprintf(bus_trace_file,"0\n");
+                    }
+                }
+                if(need_flush[who_flush] == 1){ // converting the mesi state to invalid
+                    need_flush[who_flush] = 0;
+                    Tsram[who_flush][block_number][0] = '0';
+                    Tsram[who_flush][block_number][1] = '0';
                 }
             }
+            /*
             if(bus_counter == 19){ //we gave all the words neede and returning to the default settings
                 if(who_needs != 4){
                     fprintf(bus_trace_file,"%d ",cycles[who_needs]);
@@ -802,7 +1011,7 @@ void MESI_bus(){
                     fprintf(bus_trace_file,"%05X ",bus_address_mesi);
                     fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
                     fprintf(bus_trace_file,"1 \n");
-                    core_ready[who_needs] = 1;
+                    
                 }
                 else{
                     fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
@@ -817,17 +1026,32 @@ void MESI_bus(){
                     Tsram[who_flush][block_number][0] = '0';
                     Tsram[who_flush][block_number][1] = '0';
                 }
-                bus_counter = 0;
-                bus_busy = 0;
-                flag_mem_stall[who_needs] = 0;
-                who_flush = 4;
-                who_needs = 4;
-                bus_shared[0] = 0;
-                bus_shared[1] = 0;
-                bus_shared[2] = 0;
-                bus_shared[3] = 0;
                 
             }
+            */
+        }
+
+        if((bus_counter == 20) || (bus_counter == 5 && bus_sharing == 1)){ //we gave all the words needed and returning to the default settings
+                    if(who_needs != 4){
+                        core_ready[who_needs] = 1;
+                        flag_mem_stall[who_needs] = 0;
+                    }
+                    if(bus_counter == 20){
+                        bus_counter = 0;
+                        bus_busy = 0;
+                        bus_sharing = -1;
+                        who_flush = 4;
+                    }
+                    bus_shared[0] = 0;
+                    bus_shared[1] = 0;
+                    bus_shared[2] = 0;
+                    bus_shared[3] = 0;
+                    sharing_block[0] = 0;
+                    sharing_block[1] = 0;
+                    sharing_block[2] = 0;
+                    sharing_block[3] = 0;
+                    who_needs = 4;
+                    
         }
     }
 }
@@ -1066,10 +1290,10 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
         fprintf(core_trace_files[i], "%08X \n",regs[i][15]);
         return;
     }
-    if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
+    /*if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
         cycles[i] = -1;
         return;
-    }
+    }*/
     if(pipe_regs[i][6].pc_pipe == -1){
         fprintf(core_trace_files[i],"--- ");
         for(c=2; c<=14; c++){
@@ -1181,7 +1405,6 @@ void decode(int i){
     }
 
     flag_decode_stall[i] = 0; // all source regs are ready
-
     //pc_pipe
     pipe_regs[i][3].pc_pipe = pipe_regs[i][0].pc_pipe;
     //inst
@@ -1196,6 +1419,7 @@ void decode(int i){
     //rd
     if(sliced_inst[1] == 1){
         pipe_regs[i][3].rd = my_imm;
+        reg_d = my_imm;
     }
     else{
         reg_d = regs[i][sliced_inst[1]];
@@ -1205,6 +1429,7 @@ void decode(int i){
     //rs
     if(sliced_inst[2] == 1){
         pipe_regs[i][3].rs = my_imm;
+        reg_s = my_imm;
     }
     else{
         reg_s = regs[i][sliced_inst[2]];
@@ -1214,6 +1439,7 @@ void decode(int i){
     //rt
     if(sliced_inst[3] == 1){
         pipe_regs[i][3].rt = my_imm;
+        reg_t = my_imm;
     }
     else{
         reg_t = regs[i][sliced_inst[3]];
@@ -1232,145 +1458,40 @@ void decode(int i){
     if(is_branch(pipe_regs[i][0].inst)){
         switch(sliced_inst[0]){
             case 9:
-                if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        pc[i] =  (reg_d & 0x3FF);
-                        return;
+                if(reg_s == reg_t){
+                    pc[i] = (reg_d & 0x3FF);
                 }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(reg_t == my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s == my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
-                    if(reg_s == reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
+                return;
             
             case 10:
-                if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        return;
+                if(reg_s != reg_t){
+                    pc[i] = (reg_d & 0x3FF);
                 }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(reg_t != my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s != my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
-                    if(reg_s != reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
+                return;
 
             case 11:
-                if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        return;
+                if(reg_s < reg_t){
+                    pc[i] = (reg_d & 0x3FF);
                 }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(my_imm < reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s < my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
-                    if(reg_s < reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-
+                return;
+                
             case 12:
-                if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        return;
+                if(reg_s > reg_t){
+                    pc[i] = (reg_d & 0x3FF);
                 }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(my_imm > reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s > my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
-                    if(reg_s > reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
+                return;
 
-                case 13:
-                    if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        pc[i] =  (reg_d & 0x3FF);
-                        return;
-                }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(my_imm <= reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s <= my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
+            case 13:
                     if(reg_s <= reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
+                    pc[i] = (reg_d & 0x3FF);
                 }
+                return;
 
             case 14:
-                if(sliced_inst[2] == 1 && sliced_inst[3]){ // rs and rt is imm
-                        pc[i] =  (reg_d & 0x3FF);
-                        return;
+                if(reg_s >= reg_t){
+                    pc[i] = (reg_d & 0x3FF);
                 }
-                if(sliced_inst[2] == 1){ // just rs is imm
-                    if(my_imm >= reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                if(sliced_inst[3] == 1){ // just rt is imm
-                    if(reg_s >= my_imm){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
-                else{ // no imm
-                    if(reg_s >= reg_t){
-                        pc[i] =  (reg_d & 0x3FF);
-                    }
-                    return;
-                }
+                return;
 
             case 15:
                 reg_is_available[i][15] = 0;
@@ -1382,7 +1503,4 @@ void decode(int i){
     if((sliced_inst[0] >=0 && sliced_inst[0] <=8) || sliced_inst[0] ==16){ // making the distenation reg not available for decoding next instructions.
         reg_is_available[i][sliced_inst[1]] = 0;
     }
-    
 }    
-
-
