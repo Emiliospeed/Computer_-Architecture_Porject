@@ -349,9 +349,9 @@ int main(){
         /*if(strcmp(memout[0], "00000001")){
             printf("aa");
         }*/
-        if(cycles[1] == 10000){
+        /*if(cycles[1] == 10000){
             printf("debug");
-        }
+        }*/
         MESI_bus();
         for(i=0; i<4; i++){
 
