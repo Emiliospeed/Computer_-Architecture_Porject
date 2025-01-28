@@ -1,4 +1,5 @@
-// last check : 27.01 - 22:00
+// last check : 28.01 - 14:40
+// vs code version 1.60.2
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -345,10 +346,10 @@ int main(){
 
 
     while(1){
-        //if(strcmp(memout[0], "00000001")){
-        //    printf("aa");
-        //}
-        if(cycles[0] == 135){
+        /*if(strcmp(memout[0], "00000001")){
+            printf("aa");
+        }*/
+        if(cycles[1] == 10000){
             printf("debug");
         }
         MESI_bus();
@@ -374,10 +375,14 @@ int main(){
             
             pipe_regs[i][6] = pipe_regs[i][7]; // write back continues
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
-                pc[i] = pre_branch_pc[i];
-                /*if(pc[i] >= 0){
-                    pc[i] --; //fetch the same pc
-                }*/
+                if(pipe_regs[i][3].op >=9 && pipe_regs[i][3].op <= 15){
+                    pc[i] = pre_branch_pc[i];
+                }
+                else{
+                    if(pc[i] >= 0){
+                        pc[i] --; //fetch the same pc
+                    }
+                }
                 if(flag_decode_stall[i] && (!flag_mem_stall[i])){ // if just decode stall
                     pipe_regs[i][4] = pipe_regs[i][5]; // mem continues
                     pipe_regs[i][2] = pipe_regs[i][3]; // alu continues
@@ -714,17 +719,17 @@ void mem(int core_num){
                 }
             }
             else{ // tag is not matched
-                int address_to_flush = (tag_num * pow(2,8)) + (block * 4);
                 if(mesi_state == 0 || mesi_state == 2){//invalid or exclusive
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
                     enqueue(&bus_cmd, BusRd);
-                    enqueue(&bus_address, address_to_flush);
+                    enqueue(&bus_address, address);
                     core_ready[core_num] = 0; // my data is not ready
                     alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
                 }
-                else{ // modified or shared
+                else{ // modified or 
+                    int address_to_flush = (tag_num * pow(2,8)) + (block * 4);
                     need_flush[core_num] = 1;
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
@@ -897,6 +902,9 @@ void MESI_bus(){
                         continue;
                     }
                 }
+                if((bus_origid_mesi == i) && bus_sharing == 1){
+                    continue;
+                }
 
                 for(j=2;j<15;j++){ //check if both tags are equal.
                     if(Tsram[i][block_number][j] != Tsram[bus_origid_mesi][block_number][j]){
@@ -979,7 +987,7 @@ void MESI_bus(){
         who_flush = bus_origid_mesi;
         bus_counter++;
         if(bus_counter>0 && bus_counter<5){ // the data is shared ,then we start giving the words from the first cycle
-            if(bus_sharing == 1){
+            if(bus_sharing == 1 && who_flush != 4){
                 strcpy(Dsram[who_needs][block_number*4 + bus_counter - 1], Dsram[who_flush][block_number*4 + bus_counter - 1]);
                 fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                 fprintf(bus_trace_file,"%X ",bus_origid_mesi);
@@ -992,7 +1000,7 @@ void MESI_bus(){
         }
         if(bus_counter >= 16 && bus_counter < 20){ // the data was not shared (giving the core)
             
-            if((!(bus_sharing == 1)) && who_needs != 4 && bus_counter < 20){ // the data was not shared (giving the core)
+            if(who_flush == 4 && who_needs != 4 && bus_counter < 20){ // the data was not shared (giving the core)
                 strcpy(Dsram[who_needs][block_number*4 + bus_counter - 16], memout[bus_address_mesi + bus_counter - 16]);
                 fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                 fprintf(bus_trace_file,"%X ",bus_origid_mesi);
