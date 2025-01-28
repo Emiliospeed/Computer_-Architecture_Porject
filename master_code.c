@@ -1,4 +1,4 @@
-// last check : 26.01 - 15:40
+// last check : 27.01 - 22:00
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,31 +117,33 @@ int write_miss[NUMBER_CORES];   /* write_miss[i] is the number of write_miss in 
 int decode_stall[NUMBER_CORES]; /* decode_stall[i] is the number of decode stalls in the pipeline of core[i] */
 int mem_stall[NUMBER_CORES];    /* mem_stall[i] is the number of mem stalls in the pipeline of core[i] */
 int pc[NUMBER_CORES];
+int pre_branch_pc[NUMBER_CORES];
 /*putting in a queues the parameters of the bus*/
 Queue core_bus_requests;
 Queue bus_origid;
 Queue bus_cmd;
 Queue bus_address;
-int bus_shared[NUMBER_CORES];
+int bus_shared[NUMBER_CORES]; 
 int bus_busy;
 int core_ready[NUMBER_CORES]; /*core_ready[i] is 1 if the bus gave him the block he wanted*/
 int need_flush[NUMBER_CORES]; /*need_flush[i] is 1 if the tag is wrong and we need to flush the block before reading the other block*/
 int alredy_enqueued[NUMBER_CORES]; /*alredy_enqueued[i] is 1 if the request is alredy in the round robin*/
 int who_flush ; // indicates which core will flush {0,1,2,3,4}
 int who_needs; // indicates which core (alternatively the mem) needs the data {0,1,2,3,4}
-int sharing_block[NUMBER_CORES];
-int reg_is_available[NUMBER_CORES][NUMBER_REGS];
+int sharing_block[NUMBER_CORES];    //sharing_block[i] is 1 if the block is shared with core i else it is 0
+int reg_is_available[NUMBER_CORES][NUMBER_REGS];    //reg_is_available[i][j]
 int flag_decode_stall[NUMBER_CORES];
 int flag_mem_stall[NUMBER_CORES];
 FILE* core_trace_files[NUMBER_CORES];
 FILE* bus_trace_file;
 int the_end[NUMBER_CORES];
 int we_finished;
+int last_cycle[NUMBER_CORES];
 
 
 
 // char* filename,   char ***array,   int*;
-// void main(int argc, char *argv[]){
+//int main(int argc, char *argv[]){
 int main(){
     FILE* memout_file;
     FILE* regout_files[NUMBER_CORES];
@@ -149,8 +151,9 @@ int main(){
     FILE* tsram_files[NUMBER_CORES];
     FILE* stats_files[NUMBER_CORES];
 
-    int i, c, k;
-    /*if (argc != 28){
+    int i, c, k, address;
+    /*
+    if (argc != 28){
         printf("invalid input");
         exit(0);
     }
@@ -182,6 +185,7 @@ int main(){
     char* stats2_txt = argv[26];
     char* stats3_txt = argv[27];
     */
+    
 
     char* imem0_txt = "imem0.txt";
     char* imem1_txt = "imem1.txt";
@@ -321,6 +325,8 @@ int main(){
         flag_decode_stall[i] = 0;
         flag_mem_stall[i] = 0;
         the_end[i] = 0;
+        last_cycle[i] = 0;
+        pre_branch_pc[i] = 0;
     }
     we_finished = 0;
     bus_counter = 0;
@@ -339,35 +345,26 @@ int main(){
 
 
     while(1){
+        //if(strcmp(memout[0], "00000001")){
+        //    printf("aa");
+        //}
+        if(cycles[0] == 135){
+            printf("debug");
+        }
         MESI_bus();
         for(i=0; i<4; i++){
-            if(i == 3){
-                printf("cycles[3] = %d\n", cycles[3]);
-            }
+
             if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){
                 // here we can write the total cycles in states file
+                if(cycles[i] != -1){
+                    last_cycle[i] = cycles[i];
+                }
                 cycles[i] = -1;
                 continue;
             }
-            /*
-            if(i != 2 ){
-                cycles[i] = -1;
-                continue;
-            }
-            */
 
             fprintf(core_trace_files[i],"%d ",cycles[i]);
 
-            //printf("cycles[2] = %d\n", cycles[2]);
-            /*
-            if(i==2){
-                printf("cycles[2] = %d\n", cycles[2]);
-            }
-            */
-
-            /*if(bus_counter == 18){
-                printf("hiiiiiiiiiiii");
-            }*/
             fetch(i);
             decode(i);
             alu(i);
@@ -377,17 +374,21 @@ int main(){
             
             pipe_regs[i][6] = pipe_regs[i][7]; // write back continues
             if(flag_decode_stall[i] || flag_mem_stall[i]){ // if stall
-                if(pc[i] >= 0){
+                pc[i] = pre_branch_pc[i];
+                /*if(pc[i] >= 0){
                     pc[i] --; //fetch the same pc
-                }
+                }*/
                 if(flag_decode_stall[i] && (!flag_mem_stall[i])){ // if just decode stall
-                    pipe_regs[i][6] = pipe_regs[i][7]; // wb continues
                     pipe_regs[i][4] = pipe_regs[i][5]; // mem continues
                     pipe_regs[i][2] = pipe_regs[i][3]; // alu continues
+                    decode_stall[i]++;
                 }
-                else{ // if mem stall
-                    pipe_regs[i][6] = pipe_regs[i][7]; // wb continues
-
+                if(flag_mem_stall[i] && (!flag_decode_stall[i])){ // if just mem stall
+                    mem_stall[i]++;
+                }
+                if(flag_mem_stall[i] && flag_decode_stall[i]){
+                    //decode_stall[i]++;
+                    mem_stall[i]++;
                 }
             }
             else{
@@ -400,18 +401,13 @@ int main(){
             if(cycles[i] != -1){
                 cycles[i]++;
             }
+            
 
             fflush(core_trace_files[i]);
 
         }
         fflush(bus_trace_file);
 
-        
-        /*
-        if(cycles[2] == 1181){
-            return 0;
-        }
-        */
         if(cycles[0] == -1 && cycles[1] == -1 && cycles[2] == -1 && cycles[3] == -1){
             break;
         }
@@ -422,6 +418,20 @@ int main(){
 
     for(i=0; i<NUMBER_CORES; i++){
         fclose(core_trace_files[i]);
+    }
+
+    for(i=0; i<NUMBER_CORES; i++){
+        for(c=0; c<NUMBER_BLOCKS; c++){
+            if(Tsram[i][c][0] == '1' && Tsram[i][c][1] == '1'){
+                char *tr = Tsram[i][c];
+                char *bin = tr+2;
+                address = ((int)strtol(bin,NULL,2))*pow(2,8) + c*4;
+
+                for(k=0; k<4; k++){
+                    strcpy(memout[address+k], Dsram[i][4*c+k]); 
+                }                        
+            }
+        }
     }
 
     for(i=0; i<20; i++){
@@ -526,7 +536,7 @@ int main(){
     
     for(i=0;i<=3;i++){
         fprintf(stats_files[i],"Cycles %d\n instructions %d\n read_hit %d\n write_hit %d\n read_miss %d\n write_miss %d\n decode_stall %d\n mem_stall %d\n",
-        cycles[i], instructions[i], read_hit[i], write_hit[i], read_miss[i], write_miss[i], decode_stall[i], mem_stall[i] );
+        last_cycle[i], instructions[i], read_hit[i], write_hit[i], read_miss[i], write_miss[i], decode_stall[i], mem_stall[i] );
         fflush(stats_files[i]);
 
         for(c=0; c<DSRAM_SIZE; c++){
@@ -538,10 +548,10 @@ int main(){
         fflush(dsram_files[i]);
 
         for(c=0 ; c<NUMBER_BLOCKS; c++){
-            char hex[9];                     /////////////////////the prblem is here
+            char hex[9];                     
             bin_to_hex(Tsram[i][c], hex);
             for(k=0; k<8; k++){
-                fprintf(tsram_files[i],"%c" , Tsram[i][c][k]);
+                fprintf(tsram_files[i],"%c" , hex[k]);
             }
             fprintf(tsram_files[i], "\n");
         }
@@ -576,20 +586,6 @@ int main(){
     fclose(bus_trace_file);
 
     return 0;
-
-/*
-    free(memout);
-
-    fflush(memout_file);
-    fflush(bus_trace_file);
-    for(i=0;i<NUMBER_CORES; i++){
-        fflush(regout_files[i]);
-        fflush(core_trace_files[i]);
-        fflush(dsram_files[i]);
-        fflush(tsram_files[i]);
-        fflush(stats_files[i]);
-    }
-*/
     
 }
 
@@ -704,6 +700,7 @@ void mem(int core_num){
             if (tag_num == wanted_tag){ // tag matched
                 if(mesi_state != 0){ // not invalid
                     data = hex_to_int(Dsram[core_num][index]);
+                    read_hit[core_num]++;
                 }
                 else{ // invalid
                     enqueue(&core_bus_requests, core_num);
@@ -713,14 +710,16 @@ void mem(int core_num){
                     core_ready[core_num] = 0; // my data is not ready
                     alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
+                    read_miss[core_num]++;
                 }
             }
             else{ // tag is not matched
+                int address_to_flush = (tag_num * pow(2,8)) + (block * 4);
                 if(mesi_state == 0 || mesi_state == 2){//invalid or exclusive
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
                     enqueue(&bus_cmd, BusRd);
-                    enqueue(&bus_address, address);
+                    enqueue(&bus_address, address_to_flush);
                     core_ready[core_num] = 0; // my data is not ready
                     alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
@@ -730,7 +729,7 @@ void mem(int core_num){
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
                     enqueue(&bus_cmd, Flush);
-                    enqueue(&bus_address, address);
+                    enqueue(&bus_address, address_to_flush);
                     core_ready[core_num] = 0; // my data is not ready
                     alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
@@ -741,6 +740,12 @@ void mem(int core_num){
 
         if(op == 17){ //sw
             if(tag_num == wanted_tag){ //tag matched
+                if(mesi_state == 0){
+                    write_miss[core_num]++;
+                }
+                else{
+                    write_hit[core_num]++;
+                }
                 if(mesi_state == 0 || mesi_state == 1){ //invalid or shared
                     enqueue(&core_bus_requests, core_num);
                     enqueue(&bus_origid, core_num);
@@ -749,6 +754,11 @@ void mem(int core_num){
                     core_ready[core_num] = 0; // my data is not ready
                     alredy_enqueued[core_num] = 1;
                     flag_mem_stall[core_num] = 1;
+                }
+                else{ // modified or exclusive
+                    Tsram[core_num][block][1] = '1'; // modified
+                    int_to_hex(pipe_regs[core_num][4].rd, Dsram[core_num][index]);
+
                 }
             }
             else{//tag not matched
@@ -845,7 +855,9 @@ void MESI_bus(){
     static int bus_address_mesi = -1;
     static int bus_sharing = -1;
     int source_data;
-    int i,j, not_equals;
+    int i,j, not_equals, tag_num, tag_size, read_address;
+    char hex[9];
+    char bin[13];
     //int mesi_state;
     int block_number;
     not_equals = 0;
@@ -888,7 +900,7 @@ void MESI_bus(){
 
                 for(j=2;j<15;j++){ //check if both tags are equal.
                     if(Tsram[i][block_number][j] != Tsram[bus_origid_mesi][block_number][j]){
-                        not_equals = 1;
+                        not_equals = 1; 
                         break;
                     }
                 }
@@ -933,6 +945,25 @@ void MESI_bus(){
                 }
                 
             }
+            tag_num = bus_address_mesi / pow(2,8);
+            itoa(tag_num, bin, 2);
+            for(i=0; i<12; i++){
+                if(bin[i] == '\0'){
+                    tag_size = i;
+                    break;
+                }
+            }
+
+            for(i=0; i<12; i++){
+                if(i<12-tag_size){
+                    Tsram[bus_origid_mesi][block_number][i+2] = '0';
+                }
+                else{
+                    Tsram[bus_origid_mesi][block_number][i+2] = bin[i-(12-tag_size)];
+                }
+            }
+
+            Tsram[bus_origid_mesi][block_number][i+2] = '\0';
             bus_origid_mesi = who_flush;
             bus_cmd_mesi = Flush;
             bus_busy = 1;
@@ -959,15 +990,9 @@ void MESI_bus(){
                 
             }
         }
-        if(bus_counter >= 16){
+        if(bus_counter >= 16 && bus_counter < 20){ // the data was not shared (giving the core)
             
             if((!(bus_sharing == 1)) && who_needs != 4 && bus_counter < 20){ // the data was not shared (giving the core)
-                /*
-                for(i=0; i<LINE_LENGTH-1; i++){
-                    Dsram[who_needs][block_number*4 + bus_counter - 16][i] = memout[bus_address_mesi + bus_counter - 16][i];
-                }
-                Dsram[who_needs][block_number*4 + bus_counter - 16][i] = '\0';
-                */
                 strcpy(Dsram[who_needs][block_number*4 + bus_counter - 16], memout[bus_address_mesi + bus_counter - 16]);
                 fprintf(bus_trace_file,"%d ",cycles[who_needs]);
                 fprintf(bus_trace_file,"%X ",bus_origid_mesi);
@@ -984,11 +1009,11 @@ void MESI_bus(){
             if(who_flush != 4){ // main memory not flushing then we give it data
                 strcpy(memout[bus_address_mesi + bus_counter - 16], Dsram[who_flush][block_number*4 + bus_counter - 16]);
                 if(who_needs == 4 && we_finished == 0){
-                    fprintf(bus_trace_file,"%d ",cycles[who_needs]);
+                    fprintf(bus_trace_file,"%d ",cycles[who_flush]);
                     fprintf(bus_trace_file,"%X ",bus_origid_mesi);
                     fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
                     fprintf(bus_trace_file,"%05X ",bus_address_mesi + bus_counter - 16);
-                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][bus_address_mesi + bus_counter - 16]);
+                    fprintf(bus_trace_file,"%s ",Dsram[who_flush][bus_address_mesi + bus_counter - 16]);
                     if(bus_sharing == 1){
                         fprintf(bus_trace_file,"1\n");
                     }
@@ -1000,41 +1025,38 @@ void MESI_bus(){
                     need_flush[who_flush] = 0;
                     Tsram[who_flush][block_number][0] = '0';
                     Tsram[who_flush][block_number][1] = '0';
+                    read_address = pipe_regs[who_flush][4].ALU_pipe;
+                    tag_num = read_address / pow(2,8);
+                    itoa(tag_num, bin, 2);
+                    for(i=0; i<12; i++){
+                        if(bin[i] == '\0'){
+                            tag_size = i;
+                            break;
+                        }
+                    }
+
+                    for(i=0; i<12; i++){
+                        if(i<12-tag_size){
+                            Tsram[bus_origid_mesi][block_number][i+2] = '0';
+                        }
+                        else{
+                            Tsram[bus_origid_mesi][block_number][i+2] = bin[i-(12-tag_size)];
+                        }  
+                    }
+
+                    Tsram[bus_origid_mesi][block_number][i+2] = '\0';
                 }
             }
-            /*
-            if(bus_counter == 19){ //we gave all the words neede and returning to the default settings
-                if(who_needs != 4){
-                    fprintf(bus_trace_file,"%d ",cycles[who_needs]);
-                    fprintf(bus_trace_file,"%X ",bus_origid_mesi);
-                    fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
-                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
-                    fprintf(bus_trace_file,"1 \n");
-                    
-                }
-                else{
-                    fprintf(bus_trace_file,"%d ",cycles[bus_origid_mesi]);
-                    fprintf(bus_trace_file,"%X ",bus_origid_mesi);
-                    fprintf(bus_trace_file,"%X ",bus_cmd_mesi);
-                    fprintf(bus_trace_file,"%05X ",bus_address_mesi);
-                    fprintf(bus_trace_file,"%s ",Dsram[who_needs][block_number*4 + bus_counter - 16]);
-                    fprintf(bus_trace_file,"1\n");
-                }
-                if((who_flush !=4) && need_flush[who_flush] == 1){ // converting the mesi state to invalid
-                    need_flush[who_flush] = 0;
-                    Tsram[who_flush][block_number][0] = '0';
-                    Tsram[who_flush][block_number][1] = '0';
-                }
-                
-            }
-            */
+
         }
 
         if((bus_counter == 20) || (bus_counter == 5 && bus_sharing == 1)){ //we gave all the words needed and returning to the default settings
                     if(who_needs != 4){
                         core_ready[who_needs] = 1;
                         flag_mem_stall[who_needs] = 0;
+                    }
+                    else{
+                        alredy_enqueued[who_flush] = 0;
                     }
                     if(bus_counter == 20){
                         bus_counter = 0;
@@ -1131,9 +1153,7 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
         fprintf(core_trace_files[i], "--- ");
         pipe_regs[i][1].pc_pipe = -2;
         return;
-        /*fprintf(core_trace_files[i], "%03d ", pc[i]);
-        pipe_regs[i][1].pc_pipe = -2; // -2 = halt
-        return;*/
+
     }
     if(the_end[i] == 2){
         fprintf(core_trace_files[i], "--- ");
@@ -1146,8 +1166,6 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
         pipe_regs[i][1].pc_pipe = -2; // -2 = halt
         return;
     }
-    
-    //h=h+1;
     
     pipe_regs[i][1].pc_pipe=h;
     switch (i) {
@@ -1180,6 +1198,7 @@ void fetch (int i){ // Takes pc[i] and the instruction of the pc and put pc++ an
             break;
     }   
     fprintf(core_trace_files[i], "%03X ", h); //printing the pc in fetch
+    pre_branch_pc[i] = pc[i];
     pc[i]++;     
 }
 //helper func for alu that do an arithmetic shift right
@@ -1288,12 +1307,10 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
         fprintf(core_trace_files[i], "%08X ",regs[i][c]);
         }
         fprintf(core_trace_files[i], "%08X \n",regs[i][15]);
+        instructions[i] += 1;
         return;
     }
-    /*if(pc[i] == -1 && pipe_regs[i][6].pc_pipe == -2){ // reached halt
-        cycles[i] = -1;
-        return;
-    }*/
+
     if(pipe_regs[i][6].pc_pipe == -1){
         fprintf(core_trace_files[i],"--- ");
         for(c=2; c<=14; c++){
@@ -1304,7 +1321,8 @@ void wb (int i){ //Takes the opcode , destination , output of alu and data from 
     }
 
     fprintf(core_trace_files[i], "%03X ", pipe_regs[i][6].pc_pipe);
-    
+    instructions[i] += 1;
+
     for(c=2; c<=14; c++){
         fprintf(core_trace_files[i], "%08X ",regs[i][c]);
     }
@@ -1383,13 +1401,13 @@ void decode(int i){
         if(!(reg_is_available[i][sliced_inst[2]] && reg_is_available[i][sliced_inst[3]])){
             if(reg_is_available[i][sliced_inst[0]] == 17){ // if op is sw we should check if rd is available
                 if(!reg_is_available[i][sliced_inst[1]]){
-                    decode_stall[i] ++;
+                    //decode_stall[i] ++;
                     flag_decode_stall[i] = 1;
                     pipe_regs[i][3].pc_pipe = -1;
                     return;
                 }
             }
-            decode_stall[i] ++;
+            //decode_stall[i] ++;
             flag_decode_stall[i] = 1;
             pipe_regs[i][3].pc_pipe = -1;
             return;
@@ -1397,7 +1415,7 @@ void decode(int i){
     }
     else {
         if((!(reg_is_available[i][sliced_inst[1]] )) || (!(reg_is_available[i][sliced_inst[2]])) || (!(reg_is_available[i][sliced_inst[3]]))){
-            decode_stall[i] ++;
+            //decode_stall[i] ++;
             flag_decode_stall[i] = 1;
             pipe_regs[i][3].pc_pipe = -1;
             return;
